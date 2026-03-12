@@ -10,7 +10,7 @@
 ### 功能 1: 创建多模型配置结构 ✅
 
 **完成时间**: 2026-03-13
-**Git Commit**: (待提交)
+**Git Commit**: 5fb5a4f
 
 **新增文件**:
 - `main/llm/llm_config.h` - 模型配置系统头文件
@@ -107,31 +107,71 @@
 
 ## 进行中功能
 
-### 功能 4: 实现自动降级策略
+### 功能 4: 实现自动降级策略 ✅
 
-**状态**: ⏳ 待实现
-**文件位置**: `main/llm/llm_fallback.c` (新建)
+**完成时间**: 2026-03-13
+**Git Commit**: (待提交)
 
-**待实现**:
-1. 创建降级结构 `llm_fallback_t`
-2. 实现带降级的 LLM 调用 `llm_chat_with_fallback()`
-3. 降级逻辑:
-   - 尝试当前模型
-   - 失败时切换到下一个优先级的模型
-   - 超时或网络错误也触发降级
-   - 所有模型都失败时返回错误
+**新增文件**:
+- `main/llm/llm_fallback.h` - 降级系统头文件
+- `main/llm/llm_fallback.c` - 降级系统实现
+
+**实现内容**:
+1. ✅ 创建降级结构 `llm_fallback_state_t`:
+   - 记录起始模型索引、当前模型索引
+   - 记录尝试次数和最大尝试次数
+   - 记录成功标志
+
+2. ✅ 实现带降级的 LLM 调用 `llm_chat_with_fallback()`:
+   - 支持配置每个模型的最大尝试次数
+   - 按优先级遍历所有模型
+   - 永久错误（4xx、配置错误）触发模型切换
+   - 临时错误（超时、网络错误）触发重试
+   - 指数退避策略（1s、2s、4s...）
+   - 成功后保留当前模型选择
+
+3. ✅ 实现错误分类 `is_permanent_error()`:
+   - HTTP 4xx 错误（除 429）→ 永久错误
+   - HTTP 429 Rate Limit → 临时错误
+   - HTTP 5xx 错误 → 临时错误
+   - ESP_ERR_NO_MEM/NOT_FOUND/INVALID_ARG → 永久错误
+   - ESP_ERR_TIMEOUT/HTTP_CONNECT → 临时错误
+
+4. ✅ 实现 `llm_chat_with_status()`:
+   - 包装 `llm_chat_tools()` 返回 HTTP 状态码
+   - 用于错误分类
 
 ---
 
-### 功能 5: 添加模型配置 API
+### 功能 5: 添加模型配置 API ✅
 
-**状态**: ⏳ 待实现
-**文件位置**: `main/llm/llm_api.c` (新建) 或集成到 `main/cli/serial_cli.c`
+**完成时间**: 2026-03-13
+**Git Commit**: (待提交)
 
-**待实现**:
-1. 串口命令 `model list` - 查看已注册模型
-2. 串口命令 `model switch <name>` - 切换模型
-3. 串口命令 `model register <json>` - 注册新模型（可选）
+**修改文件**:
+- `main/cli/serial_cli.c`
+
+**实现内容**:
+1. ✅ 串口命令 `model list`:
+   - 列出所有已注册模型
+   - 显示当前激活模型（标记 [CURRENT]）
+   - 显示模型详细信息：
+     - Provider
+     - Priority
+     - Tools/Vision 支持
+     - Max Tokens
+     - Base URL（如果自定义）
+
+2. ✅ 串口命令 `model switch <name>`:
+   - 切换到指定模型
+   - 验证模型是否存在
+   - 更新 `g_llm_current_model_index`
+   - 显示切换结果
+
+3. ✅ 集成到 CLI 命令系统:
+   - 使用 argtable3 参数解析
+   - 注册命令到 esp_console
+   - 错误处理和用户友好的提示
 
 ---
 

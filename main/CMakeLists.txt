@@ -12,6 +12,7 @@ idf_component_register(
         "telegram/telegram_bot.c"
         "llm/llm_proxy.c"
         "llm/llm_config.c"
+        "llm/llm_fallback.c"
         "agent/agent_loop.c"
         "agent/context_builder.c"
         "memory/memory_store.c"

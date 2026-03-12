@@ -3,6 +3,8 @@
 #include "wifi/wifi_manager.h"
 #include "telegram/telegram_bot.h"
 #include "llm/llm_proxy.h"
+#include "llm/llm_config.h"
+#include "llm/llm_fallback.h"
 #include "memory/memory_store.h"
 #include "memory/session_mgr.h"
 #include "proxy/http_proxy.h"
@@ -141,6 +143,68 @@ static int cmd_set_base_url(int argc, char **argv)
     }
     llm_set_base_url(base_url_args.url->sval[0]);
     printf("Base URL saved.\n");
+    return 0;
+}
+
+/* --- model list command --- */
+static int cmd_model_list(int argc, char **argv)
+{
+    int model_count = llm_get_model_count();
+    if (model_count == 0) {
+        printf("No models registered.\n");
+        return 0;
+    }
+
+    const llm_model_config_t *current = llm_get_current_model();
+
+    printf("=== Registered Models (%d) ===\n", model_count);
+    for (int i = 0; i < model_count; i++) {
+        const llm_model_config_t *model = &g_llm_models[i];
+        const char *marker = (model == current) ? " [CURRENT]" : "";
+
+        printf("%2d. %s%s\n", i + 1, model->name, marker);
+        printf("    Provider: %s\n", model->provider);
+        printf("    Priority: %d\n", model->priority);
+        printf("    Tools: %s, Vision: %s, Max Tokens: %d\n",
+               model->supports_tools ? "yes" : "no",
+               model->supports_vision ? "yes" : "no",
+               model->max_tokens);
+        if (model->base_url[0]) {
+            printf("    Base URL: %s\n", model->base_url);
+        }
+        printf("\n");
+    }
+    return 0;
+}
+
+/* --- model switch command --- */
+static struct {
+    struct arg_str *name;
+    struct arg_end *end;
+} model_switch_args;
+
+static int cmd_model_switch(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&model_switch_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, model_switch_args.end, argv[0]);
+        return 1;
+    }
+
+    const char *model_name = model_switch_args.name->sval[0];
+    esp_err_t err = llm_switch_model(model_name);
+
+    if (err == ESP_OK) {
+        const llm_model_config_t *model = llm_get_current_model();
+        printf("Switched to %s (provider: %s)\n", model->name, model->provider);
+    } else if (err == ESP_ERR_NOT_FOUND) {
+        printf("Model '%s' not found. Use 'model list' to see available models.\n", model_name);
+        return 1;
+    } else {
+        printf("Failed to switch model: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+
     return 0;
 }
 
@@ -681,6 +745,25 @@ esp_err_t serial_cli_init(void)
         .argtable = &base_url_args,
     };
     esp_console_cmd_register(&base_url_cmd);
+
+    /* model list */
+    esp_console_cmd_t model_list_cmd = {
+        .command = "model list",
+        .help = "List all registered models",
+        .func = &cmd_model_list,
+    };
+    esp_console_cmd_register(&model_list_cmd);
+
+    /* model switch */
+    model_switch_args.name = arg_str1(NULL, NULL, "<name>", "Model name to switch to");
+    model_switch_args.end = arg_end(1);
+    esp_console_cmd_t model_switch_cmd = {
+        .command = "model switch",
+        .help = "Switch to a different model",
+        .func = &cmd_model_switch,
+        .argtable = &model_switch_args,
+    };
+    esp_console_cmd_register(&model_switch_cmd);
 
     /* skill_list */
     esp_console_cmd_t skill_list_cmd = {
