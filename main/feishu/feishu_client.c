@@ -5,6 +5,7 @@
 #include "esp_tls.h"
 #include "cJSON.h"
 #include "esp_timer.h"
+#include "esp_heap_caps.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +13,7 @@
 static const char *TAG = "feishu_client";
 
 #define FEISHU_TOKEN_EXPIRE_BUFFER_SEC  300
+#define FEISHU_RESP_BUF_SIZE            (16 * 1024)
 
 static char s_token[FEISHU_TOKEN_MAX_LEN] = {0};
 static int64_t s_token_expires_at = 0;
@@ -41,7 +43,7 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
         if (evt->user_data && evt->data_len > 0) {
             char **buf = (char **)evt->user_data;
             size_t len = strlen(*buf);
-            if (len + evt->data_len < 16384) {
+            if (len + evt->data_len < FEISHU_RESP_BUF_SIZE) {
                 memcpy(*buf + len, evt->data, evt->data_len);
                 (*buf)[len + evt->data_len] = '\0';
             }
@@ -77,7 +79,7 @@ esp_err_t feishu_client_get_tenant_token(char *token, size_t len)
              "{\"app_id\":\"%s\",\"app_secret\":\"%s\"}",
              app_id, app_secret);
 
-    char *resp_buf = calloc(1, 16384);
+    char *resp_buf = heap_caps_calloc(1, FEISHU_RESP_BUF_SIZE, MALLOC_CAP_SPIRAM);
     if (!resp_buf) {
         return ESP_ERR_NO_MEM;
     }
@@ -168,7 +170,8 @@ esp_err_t feishu_client_api_request(const char *method, const char *path,
     char url[512];
     snprintf(url, sizeof(url), "%s%s", s_base_url, path);
 
-    char *resp_buf = calloc(1, resp_len > 0 ? resp_len : 16384);
+    size_t buf_size = resp_len > 0 ? resp_len : FEISHU_RESP_BUF_SIZE;
+    char *resp_buf = heap_caps_calloc(1, buf_size, MALLOC_CAP_SPIRAM);
     if (!resp_buf) {
         return ESP_ERR_NO_MEM;
     }

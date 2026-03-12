@@ -4,6 +4,7 @@
 #include "bus/message_bus.h"
 #include "llm/llm_proxy.h"
 #include "memory/session_mgr.h"
+#include "memory/memory_stats.h"
 #include "tools/tool_registry.h"
 
 #include <string.h>
@@ -320,9 +321,12 @@ static void agent_loop_task(void *arg)
         /* Free inbound message content */
         free(msg.content);
 
-        /* Log memory status */
-        ESP_LOGI(TAG, "Free PSRAM: %d bytes",
-                 (int)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+        /* Log memory status every 10 messages */
+        static int msg_counter = 0;
+        if (++msg_counter >= 10) {
+            memory_stats_log("After 10 messages");
+            msg_counter = 0;
+        }
     }
 }
 

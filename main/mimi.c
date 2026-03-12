@@ -18,6 +18,7 @@
 #include "agent/agent_loop.h"
 #include "memory/memory_store.h"
 #include "memory/session_mgr.h"
+#include "memory/memory_stats.h"
 #include "gateway/ws_server.h"
 #include "cli/serial_cli.h"
 #include "proxy/http_proxy.h"
@@ -123,6 +124,7 @@ void app_main(void)
     /* Initialize subsystems */
     ESP_ERROR_CHECK(message_bus_init());
     ESP_ERROR_CHECK(memory_store_init());
+    ESP_ERROR_CHECK(memory_stats_init());
     ESP_ERROR_CHECK(skill_loader_init());
     ESP_ERROR_CHECK(session_mgr_init());
     ESP_ERROR_CHECK(wifi_manager_init());
