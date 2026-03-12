@@ -78,6 +78,18 @@ void feishu_on_message_ex(const feishu_message_t *fs_msg)
         return;
     }
 
+    if (fs_msg->chat_type == FEISHU_CHAT_TYPE_P2P) {
+        if (!feishu_config_is_user_allowed(fs_msg->sender_id)) {
+            ESP_LOGW(TAG, "User %s not in allowed users list, skip", fs_msg->sender_id);
+            return;
+        }
+    } else if (fs_msg->chat_type == FEISHU_CHAT_TYPE_GROUP) {
+        if (!feishu_config_is_group_allowed(fs_msg->chat_id)) {
+            ESP_LOGW(TAG, "Group %s not in allowed groups list, skip", fs_msg->chat_id);
+            return;
+        }
+    }
+
     if (s_message_callback) {
         s_message_callback(fs_msg->chat_id, fs_msg->content);
     }

@@ -44,6 +44,8 @@ typedef struct {
     char domain[FEISHU_DOMAIN_MAX_LEN];
     char tenant_access_token[FEISHU_TOKEN_MAX_LEN];
     uint64_t token_expires_at;
+    char allowed_users[512];
+    char allowed_groups[512];
     bool initialized;
     bool running;
 } feishu_config_t;
