@@ -1,6 +1,7 @@
 #include "feishu_send.h"
 #include "feishu_client.h"
 #include "feishu_config.h"
+#include "../common/retry_utils.h"
 #include "esp_log.h"
 #include "cJSON.h"
 #include <string.h>
@@ -39,7 +40,8 @@ esp_err_t feishu_send_text(const char *receive_id, const char *text)
     cJSON_Delete(root);
 
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to send message: %s", resp);
+        ERROR_LOG_DETAIL(TAG, err, "Failed to send message");
+        ESP_LOGE(TAG, "Response: %s", resp);
         return err;
     }
 

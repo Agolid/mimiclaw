@@ -19,6 +19,7 @@
 #include "memory/memory_store.h"
 #include "memory/session_mgr.h"
 #include "memory/memory_stats.h"
+#include "common/retry_utils.h"
 #include "gateway/ws_server.h"
 #include "cli/serial_cli.h"
 #include "proxy/http_proxy.h"
@@ -74,27 +75,38 @@ static void outbound_dispatch_task(void *arg)
         ESP_LOGI(TAG, "[%s] Dispatching response to %s:%s (%d bytes)",
                  msg.channel, msg.channel, msg.chat_id, (int)strlen(msg.content));
 
+        esp_err_t send_err = ESP_OK;
+
         if (strcmp(msg.channel, MIMI_CHAN_TELEGRAM) == 0) {
-            esp_err_t send_err = telegram_send_message(msg.chat_id, msg.content);
+            send_err = telegram_send_message(msg.chat_id, msg.content);
             if (send_err != ESP_OK) {
-                ESP_LOGE(TAG, "Telegram send failed for %s: %s", msg.chat_id, esp_err_to_name(send_err));
+                ERROR_LOG_DETAIL(TAG, send_err, "Telegram send failed");
+                if (error_is_retryable(send_err)) {
+                    ESP_LOGW(TAG, "[Telegram] Retryable error, will retry on next poll");
+                }
             } else {
-                ESP_LOGI(TAG, "Telegram send success for %s (%d bytes)", msg.chat_id, (int)strlen(msg.content));
+                ESP_LOGI(TAG, "[Telegram] Send success for %s (%d bytes)", msg.chat_id, (int)strlen(msg.content));
             }
         } else if (strcmp(msg.channel, MIMI_CHAN_WEBSOCKET) == 0) {
-            esp_err_t ws_err = ws_server_send(msg.chat_id, msg.content);
-            if (ws_err != ESP_OK) {
-                ESP_LOGW(TAG, "WS send failed for %s: %s", msg.chat_id, esp_err_to_name(ws_err));
+            send_err = ws_server_send(msg.chat_id, msg.content);
+            if (send_err != ESP_OK) {
+                ESP_LOGW(TAG, "[WebSocket] Send failed for %s: %s", msg.chat_id, esp_err_to_name(send_err));
             }
         } else if (strcmp(msg.channel, MIMI_CHAN_FEISHU) == 0) {
-            esp_err_t feishu_err = feishu_send(msg.chat_id, msg.content);
-            if (feishu_err != ESP_OK) {
-                ESP_LOGW(TAG, "Feishu send failed for %s: %s", msg.chat_id, esp_err_to_name(feishu_err));
+            send_err = feishu_send(msg.chat_id, msg.content);
+            if (send_err != ESP_OK) {
+                ERROR_LOG_DETAIL(TAG, send_err, "Feishu send failed");
+                if (error_is_retryable(send_err)) {
+                    ESP_LOGW(TAG, "[Feishu] Retryable error, will retry on next message");
+                }
+            } else {
+                ESP_LOGI(TAG, "[Feishu] Send success for %s (%d bytes)", msg.chat_id, (int)strlen(msg.content));
             }
         } else if (strcmp(msg.channel, MIMI_CHAN_SYSTEM) == 0) {
-            ESP_LOGI(TAG, "System message [%s]: %.128s", msg.chat_id, msg.content);
+            ESP_LOGI(TAG, "[System] Message [%s]: %.128s", msg.chat_id, msg.content);
         } else {
             ESP_LOGW(TAG, "Unknown channel: %s", msg.channel);
+            send_err = ESP_ERR_NOT_SUPPORTED;
         }
 
         free(msg.content);
