@@ -6,6 +6,7 @@
 #include <stdbool.h>
 
 #include "mimi_config.h"
+#include "llm_config.h"
 
 /**
  * Initialize the LLM proxy. Reads API key and model from build-time secrets, then NVS.

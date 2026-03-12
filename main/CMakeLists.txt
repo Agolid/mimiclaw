@@ -11,6 +11,7 @@ idf_component_register(
         "feishu/feishu_send.c"
         "telegram/telegram_bot.c"
         "llm/llm_proxy.c"
+        "llm/llm_config.c"
         "agent/agent_loop.c"
         "agent/context_builder.c"
         "memory/memory_store.c"
