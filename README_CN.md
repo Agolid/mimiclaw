@@ -17,21 +17,24 @@
 
 **$5 芯片上的 AI 助理（OpenClaw）。没有 Linux，没有 Node.js，纯 C。**
 
-MimiClaw 把一块小小的 ESP32-S3 开发板变成你的私人 AI 助理。插上 USB 供电，连上 WiFi，通过 Telegram 跟它对话 — 它能处理你丢给它的任何任务，还会随时间积累本地记忆不断进化 — 全部跑在一颗拇指大小的芯片上。
+MimiClaw 把一块小小的 ESP32-S3 开发板变成你的私人 AI 助理。插上 USB 供电，连上 WiFi，通过 **Telegram** 或 **飞书** 跟它对话 — 它能处理你丢给它的任何任务，还会随时间积累本地记忆不断进化 — 全部跑在一颗拇指大小的芯片上。
+
+支持 **6 个 LLM Provider**（Anthropic、OpenAI、MiniMax、Qwen、Kimi、GLM），运行时切换，自动降级。
 
 ## 认识 MimiClaw
 
 - **小巧** — 没有 Linux，没有 Node.js，没有臃肿依赖 — 纯 C
-- **好用** — 在 Telegram 发消息，剩下的它来搞定
+- **好用** — 在 **Telegram** 或 **飞书** 发消息，剩下的它来搞定
 - **忠诚** — 从记忆中学习，跨重启也不会忘
 - **能干** — USB 供电，0.5W，24/7 运行
 - **可爱** — 一块 ESP32-S3 开发板，$5，没了
+- **多模型** — 支持 6 个 LLM Provider（Claude、GPT、MiniMax、Qwen、Kimi、GLM），运行时切换，自动降级
 
 ## 工作原理
 
 ![](assets/mimiclaw.png)
 
-你在 Telegram 发一条消息，ESP32-S3 通过 WiFi 收到后送进 Agent 循环 — LLM 思考、调用工具、读取记忆 — 再把回复发回来。同时支持 **Anthropic (Claude)** 和 **OpenAI (GPT)** 两种提供商，运行时可切换。一切都跑在一颗 $5 的芯片上，所有数据存在本地 Flash。
+你在 Telegram 或飞书发一条消息，ESP32-S3 通过 WiFi 收到后送进 Agent 循环 — LLM 思考、调用工具、读取记忆 — 再把回复发回来。同时支持 **6 个 LLM Provider**（Anthropic、OpenAI、MiniMax、Qwen、Kimi、GLM），运行时可切换，主模型失败自动降级。一切都跑在一颗 $5 的芯片上，所有数据存在本地 Flash。
 
 ## 快速开始
 
@@ -39,8 +42,16 @@ MimiClaw 把一块小小的 ESP32-S3 开发板变成你的私人 AI 助理。插
 
 - 一块 **ESP32-S3 开发板**，16MB Flash + 8MB PSRAM（如小智 AI 开发板，~¥30）
 - 一根 **USB Type-C 数据线**
-- 一个 **Telegram Bot Token** — 在 Telegram 找 [@BotFather](https://t.me/BotFather) 创建
-- 一个 **Anthropic API Key** — 从 [console.anthropic.com](https://console.anthropic.com) 获取，或一个 **OpenAI API Key** — 从 [platform.openai.com](https://platform.openai.com) 获取
+- （以下二选一，或同时配置）
+  - 一个 **Telegram Bot Token** — 在 Telegram 找 [@BotFather](https://t.me/BotFather) 创建
+  - 一个 **飞书应用 App ID 和 App Secret** — 在 [飞书开放平台](https://open.feishu.cn/app) 创建企业自建应用
+- 一个 **LLM API Key** — 任选以下 Provider：
+  - Anthropic API Key — 从 [console.anthropic.com](https://console.anthropic.com) 获取
+  - OpenAI API Key — 从 [platform.openai.com](https://platform.openai.com) 获取
+  - MiniMax API Key — 从 [api.minimax.chat](https://api.minimax.chat) 获取
+  - Qwen API Key — 从 [modelscope.cn](https://modelscope.cn) 获取
+  - Kimi (Moonshot) API Key — 从 [api.moonshot.cn](https://api.moonshot.cn) 获取
+  - GLM API Key — 从 [open.bigmodel.cn](https://open.bigmodel.cn) 获取
 
 ### 安装
 
@@ -126,9 +137,22 @@ cp main/mimi_secrets.h.example main/mimi_secrets.h
 ```c
 #define MIMI_SECRET_WIFI_SSID       "你的WiFi名"
 #define MIMI_SECRET_WIFI_PASS       "你的WiFi密码"
+
+// Telegram 配置（可选）
 #define MIMI_SECRET_TG_TOKEN        "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+
+// 飞书配置（可选）
+#define MIMI_SECRET_FEISHU_APP_ID      "cli_xxxxxxxxxxxxxx"
+#define MIMI_SECRET_FEISHU_APP_SECRET  "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+#define MIMI_SECRET_FEISHU_DOMAIN     "feishu"  // "feishu" 或 "lark"
+
+// LLM 配置
 #define MIMI_SECRET_API_KEY         "sk-ant-api03-xxxxx"
-#define MIMI_SECRET_MODEL_PROVIDER  "anthropic"     // "anthropic" 或 "openai"
+#define MIMI_SECRET_MODEL_PROVIDER  "anthropic"     // "anthropic", "openai", "minimax", "qwen", "moonshot", "glm"
+#define MIMI_SECRET_MODEL           "claude-opus-4-5"
+#define MIMI_SECRET_BASE_URL        ""              // 可选：自定义 OpenAI 兼容 API Base URL
+
+// 其他配置
 #define MIMI_SECRET_SEARCH_KEY      ""              // 可选：Brave Search API key
 #define MIMI_SECRET_PROXY_HOST      "10.0.0.1"      // 可选：代理地址
 #define MIMI_SECRET_PROXY_PORT      "7897"           // 可选：代理端口
@@ -182,9 +206,22 @@ mimi> clear_proxy                    # 清除代理
 ```
 mimi> wifi_set MySSID MyPassword   # 换 WiFi
 mimi> set_tg_token 123456:ABC...   # 换 Telegram Bot Token
-mimi> set_api_key sk-ant-api03-... # 换 API Key（Anthropic 或 OpenAI）
-mimi> set_model_provider openai    # 切换提供商（anthropic|openai）
-mimi> set_model gpt-4o             # 换模型
+
+# 飞书配置
+mimi> set_feishu_app_id cli_xxx...    # 设置飞书 App ID
+mimi> set_feishu_secret xxxxxxxxxxx...   # 设置飞书 App Secret
+mimi> set_feishu_domain feishu           # 设置域名（feishu 或 lark）
+
+# LLM 配置
+mimi> set_api_key sk-ant-api03-... # 换 API Key
+mimi> set_model_provider anthropic   # 切换提供商（anthropic|openai|minimax|qwen|moonshot|glm）
+mimi> set_model claude-opus-4-5       # 换模型
+mimi> set_base_url https://api.xxx...   # 设置自定义 API Base URL（OpenAI 兼容）
+
+# 模型管理
+mimi> model list                # 列出所有已注册模型
+mimi> model switch gpt-4o       # 切换到指定模型
+
 mimi> set_proxy 192.168.1.83 7897  # 设置代理
 mimi> clear_proxy                  # 清除代理
 mimi> set_search_key BSA...        # 设置 Brave Search API Key
@@ -260,6 +297,165 @@ MimiClaw 把所有数据存为纯文本文件，可以直接读取和编辑：
 | `cron.json` | 定时任务 — AI 创建的周期性或一次性任务 |
 | `2026-02-05.md` | 每日笔记 — 今天发生了什么 |
 | `tg_12345.jsonl` | 聊天记录 — 你和它的对话 |
+
+## 工具
+
+MimiClaw 同时支持 Anthropic 和 OpenAI 的工具调用 — LLM 在对话中可以调用工具，循环执行直到任务完成（ReAct 模式）。
+
+| 工具 | 说明 |
+|------|------|
+| `web_search` | 通过 Brave Search API 搜索网页，获取实时信息 |
+| `get_current_time` | 通过 HTTP 获取当前日期和时间，并设置系统时钟 |
+| `cron_add` | 创建定时或一次性任务（LLM 自主创建 cron 任务） |
+| `cron_list` | 列出所有已调度的 cron 任务 |
+| `cron_remove` | 按 ID 删除 cron 任务 |
+
+启用网页搜索需要在 `mimi_secrets.h` 中设置 [Brave Search API key](https://brave.com/search/api/)（`MIMI_SECRET_SEARCH_KEY`）。
+
+## 飞书集成
+
+MimiClaw 支持 [飞书开放平台](https://open.feishu.cn/)，让你在飞书中与 AI 助理对话。
+
+### 配置飞书
+
+1. 在 [飞书开放平台](https://open.feishu.cn/app) 创建企业自建应用
+2. 在「凭证与基础信息」中获取 App ID 和 App Secret
+3. 在「事件订阅」中启用「im.message.receive_v1」事件
+4. 配置订阅地址（WebSocket 自动连接，无需 HTTP 回调）
+5. 配置权限：
+   - `im:chat` - 接收消息
+   - `im:message` - 发送消息
+6. 通过串口 CLI 配置：
+
+```bash
+mimi> set_feishu_app_id cli_xxxxxxxxxxxxxx
+mimi> set_feishu_secret xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+mimi> set_feishu_domain feishu
+mimi> restart  # 重启生效
+```
+
+### 飞书功能特性
+
+- ✅ **富媒体消息** - 支持文本、图片、文件、语音
+- ✅ **群聊 @ 机器人** - 群聊中只有 @ 机器人才会响应
+- ✅ **Markdown 支持** - 自动将 LLM 返回的 Markdown 转换为飞书富文本格式
+- ✅ **权限控制** - 支持用户白名单和群聊白名单
+- ✅ **消息去重** - 防止重复处理同一条消息
+- ✅ **回复消息** - 支持回复特定消息（消息线程）
+
+### 飞书 CLI 命令
+
+```bash
+# 配置
+mimi> set_feishu_app_id cli_xxx...
+mimi> set_feishu_secret xxx...
+mimi> set_feishu_domain feishu
+
+# 权限管理
+mimi> feishu_allow_user ou_xxx...   # 允许某个用户
+mimi> feishu_allow_group oc_xxx...  # 允许某个群聊
+mimi> feishu_list_allowed            # 查看白名单
+```
+
+## 多模型支持
+
+MimiClaw 支持 6 个 LLM Provider，运行时切换，主模型失败自动降级。
+
+### 支持的 Provider
+
+| Provider | 模型示例 | 特点 |
+|----------|----------|------|
+| **Anthropic** | claude-opus-4-5, claude-3-sonnet | 默认提供商，支持 tools、vision |
+| **OpenAI** | gpt-4o, gpt-4-turbo | 支持 tools、vision |
+| **MiniMax** | abab6.5s-chat | OpenAI 兼容，支持 tools |
+| **Qwen** | qwen-plus, qwen-turbo | OpenAI 兼容，支持 tools |
+| **Kimi (Moonshot)** | moonshot-v1-8k, moonshot-v1-32k | OpenAI 兼容，长上下文 |
+| **GLM** | glm-4-plus, glm-4-flash | OpenAI 兼容，支持 tools |
+
+### 模型切换
+
+通过串口 CLI 切换模型：
+
+```bash
+# 查看所有已注册模型
+mimi> model list
+
+输出示例：
+Models (6 registered):
+  [CURRENT] claude-opus-4-5 (anthropic, priority=1, tools=yes, vision=yes)
+            gpt-4-turbo (openai, priority=2, tools=yes, vision=yes)
+            minimax (minimax, priority=3, tools=yes, vision=no)
+            qwen-plus (qwen, priority=4, tools=yes, vision=no)
+            moonshot-v1 (moonshot, priority=5, tools=yes, vision=no)
+            glm-4-plus (glm, priority=6, tools=yes, vision=no)
+
+# 切换到指定模型
+mimi> model switch gpt-4-turbo
+Switched to gpt-4-turbo (provider: openai)
+```
+
+### 自动降级策略
+
+当主模型调用失败时，MimiClaw 会自动切换到备用模型，确保服务可用性。
+
+**降级规则：**
+
+1. **永久错误**（HTTP 4xx，除 429）→ 立即切换到下一个模型
+2. **临时错误**（HTTP 5xx、超时、网络错误）→ 重试当前模型，最多 2 次
+3. **Rate Limit (429）** → 重试当前模型，使用指数退避（1s、2s、4s...）
+4. 按优先级顺序遍历所有模型，直到成功或全部失败
+
+**示例：**
+
+```
+尝试 claude-opus-4-5 → 失败 (429) → 重试 (1s) → 失败 (429) → 重试 (2s) → 失败
+切换到 gpt-4-turbo → 成功
+```
+
+### 自定义 OpenAI 兼容 API
+
+MimiClaw 支持任何 OpenAI Chat Completions API 兼容的服务：
+
+```bash
+# 设置自定义 Base URL
+mimi> set_base_url https://api.custom-llm.com/v1/chat/completions
+mimi> set_model_provider openai
+mimi> set_model custom-model-name
+```
+
+### LLM 配置示例
+
+```bash
+# Anthropic Claude
+mimi> set_model_provider anthropic
+mimi> set_model claude-opus-4-5
+mimi> set_api_key sk-ant-api03-...
+
+# OpenAI GPT
+mimi> set_model_provider openai
+mimi> set_model gpt-4o
+mimi> set_api_key sk-proj-...
+
+# MiniMax
+mimi> set_model_provider minimax
+mimi> set_model abab6.5s-chat
+mimi> set_api_key xxx...
+
+# Qwen
+mimi> set_model_provider qwen
+mimi> set_model qwen-plus
+mimi> set_api_key xxx...
+
+# Kimi (Moonshot)
+mimi> set_model_provider moonshot
+mimi> set_model moonshot-v1-8k
+mimi> set_api_key sk-...
+
+# GLM
+mimi> set_model_provider glm
+mimi> set_model glm-4-plus
+mimi> set_api_key xxx...
+```
 
 ## 工具
 
