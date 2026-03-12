@@ -40,6 +40,30 @@ void feishu_on_message(const char *chat_id, const char *content)
     message_bus_push_inbound(&msg);
 }
 
+bool feishu_should_process_message(const feishu_message_t *fs_msg)
+{
+    if (!fs_msg) {
+        return false;
+    }
+
+    if (fs_msg->chat_type == FEISHU_CHAT_TYPE_P2P) {
+        return true;
+    }
+
+    if (fs_msg->chat_type == FEISHU_CHAT_TYPE_GROUP) {
+        if (fs_msg->mentioned_bot) {
+            ESP_LOGI(TAG, "Group message mentions bot, will process");
+            return true;
+        } else {
+            ESP_LOGI(TAG, "Group message does not mention bot, skip");
+            return false;
+        }
+    }
+
+    ESP_LOGW(TAG, "Unknown chat type, skip");
+    return false;
+}
+
 void feishu_on_message_ex(const feishu_message_t *fs_msg)
 {
     if (!fs_msg || !fs_msg->content || fs_msg->content[0] == '\0') {
@@ -49,6 +73,10 @@ void feishu_on_message_ex(const feishu_message_t *fs_msg)
 
     ESP_LOGI(TAG, "Received message from %s: %s (msg_id=%s, sender=%s)",
              fs_msg->chat_id, fs_msg->content, fs_msg->msg_id, fs_msg->sender_id);
+
+    if (!feishu_should_process_message(fs_msg)) {
+        return;
+    }
 
     if (s_message_callback) {
         s_message_callback(fs_msg->chat_id, fs_msg->content);
