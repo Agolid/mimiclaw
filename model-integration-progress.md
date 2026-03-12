@@ -110,7 +110,7 @@
 ### 功能 4: 实现自动降级策略 ✅
 
 **完成时间**: 2026-03-13
-**Git Commit**: (待提交)
+**Git Commit**: e40631c
 
 **新增文件**:
 - `main/llm/llm_fallback.h` - 降级系统头文件
@@ -146,7 +146,7 @@
 ### 功能 5: 添加模型配置 API ✅
 
 **完成时间**: 2026-03-13
-**Git Commit**: (待提交)
+**Git Commit**: e40631c
 
 **修改文件**:
 - `main/cli/serial_cli.c`
@@ -198,10 +198,79 @@
 
 ---
 
+## Git 提交历史
+
+- `e40631c` - [feat] 实现自动降级策略和模型配置 CLI
+  - 功能 4: 自动降级策略（llm_fallback.c/h）
+  - 功能 5: 模型配置 CLI（model list, model switch）
+
+- `5fb5a4f` - [feat] 添加多模型配置支持和新的 providers
+  - 功能 1: 多模型配置结构（llm_config.c/h）
+  - 功能 2: 模型注册和运行时切换
+  - 功能 3: 扩展 API 调用层支持新 providers
+
+---
+
+## 总体完成情况
+
+### 已完成功能 ✅
+
+1. ✅ 功能 1: 创建多模型配置结构
+2. ✅ 功能 2: 实现模型注册和运行时切换
+3. ✅ 功能 3: 扩展 API 调用层支持新 providers
+4. ✅ 功能 4: 实现自动降级策略
+5. ✅ 功能 5: 添加模型配置 API
+
+### 集成的模型列表 ✅
+
+| 模型名称 | Provider | API Base URL | 特点 |
+|-----------|----------|--------------|------|
+| claude-opus-4-5 | anthropic | 默认 Anthropic API | 支持 tools、vision |
+| gpt-4-turbo | openai | 默认 OpenAI API | 支持 tools、vision |
+| minimax | minimax | https://api.minimax.chat/v1/chat/completions | OpenAI 兼容，支持 tools |
+| qwen-plus | qwen | https://api-inference.modelscope.cn/v1/chat/completions | OpenAI 兼容，支持 tools |
+| moonshot-v1 | moonshot | https://api.moonshot.cn/v1/chat/completions | OpenAI 兼容，支持 tools |
+| glm-4-plus | glm | https://open.bigmodel.cn/api/paas/v4/chat/completions | OpenAI 兼容，支持 tools |
+
+---
+
+## 使用说明
+
+### 串口命令示例
+
+```bash
+# 查看所有已注册模型
+mimi> model list
+
+# 切换到指定模型
+mimi> model switch minimax
+Switched to minimax (provider: minimax)
+```
+
+### 代码示例
+
+```c
+// 使用自动降级策略
+llm_response_t resp;
+esp_err_t err = llm_chat_with_fallback(system_prompt,
+                                        messages,
+                                        tools_json,
+                                        &resp,
+                                        2);  // 每个模型最多尝试 2 次
+
+if (err == ESP_OK) {
+    // 成功
+    const llm_model_config_t *model = llm_get_current_model();
+    printf("Used model: %s\n", model->name);
+}
+```
+
+---
+
 ## 下一步工作
 
-1. ✅ 完成 Git 提交
-2. ⏳ 实现功能 4: 自动降级策略
-3. ⏳ 实现功能 5: 模型配置 API
-4. ⏳ 编译测试
-5. ⏳ 更新飞书进度文档
+1. ⏳ 编译测试
+2. ⏳ 实际测试各个 provider 的 API 调用
+3. ⏳ 更新飞书进度文档
+4. ⏳ 添加更多模型配置选项（如自定义 max_tokens）
+5. ⏳ 实现模型配置的持久化（保存到 NVS）
