@@ -70,7 +70,8 @@ static void outbound_dispatch_task(void *arg)
         mimi_msg_t msg;
         if (message_bus_pop_outbound(&msg, UINT32_MAX) != ESP_OK) continue;
 
-        ESP_LOGI(TAG, "Dispatching response to %s:%s", msg.channel, msg.chat_id);
+        ESP_LOGI(TAG, "[%s] Dispatching response to %s:%s (%d bytes)",
+                 msg.channel, msg.channel, msg.chat_id, (int)strlen(msg.content));
 
         if (strcmp(msg.channel, MIMI_CHAN_TELEGRAM) == 0) {
             esp_err_t send_err = telegram_send_message(msg.chat_id, msg.content);

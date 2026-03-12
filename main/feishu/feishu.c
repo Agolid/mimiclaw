@@ -27,7 +27,7 @@ void feishu_set_receive_callback(void (*callback)(const char *chat_id, const cha
 
 void feishu_on_message(const char *chat_id, const char *content)
 {
-    ESP_LOGI(TAG, "Received message from %s: %s", chat_id, content);
+    ESP_LOGI(TAG, "[Feishu] Received message from %s: %s", chat_id, content);
 
     if (s_message_callback) {
         s_message_callback(chat_id, content);
@@ -52,10 +52,10 @@ bool feishu_should_process_message(const feishu_message_t *fs_msg)
 
     if (fs_msg->chat_type == FEISHU_CHAT_TYPE_GROUP) {
         if (fs_msg->mentioned_bot) {
-            ESP_LOGI(TAG, "Group message mentions bot, will process");
+            ESP_LOGI(TAG, "[Feishu] Group message mentions bot, will process");
             return true;
         } else {
-            ESP_LOGI(TAG, "Group message does not mention bot, skip");
+            ESP_LOGI(TAG, "[Feishu] Group message does not mention bot, skip");
             return false;
         }
     }
@@ -67,12 +67,13 @@ bool feishu_should_process_message(const feishu_message_t *fs_msg)
 void feishu_on_message_ex(const feishu_message_t *fs_msg)
 {
     if (!fs_msg || !fs_msg->content || fs_msg->content[0] == '\0') {
-        ESP_LOGW(TAG, "Empty message, skip");
+        ESP_LOGW(TAG, "[Feishu] Empty message, skip");
         return;
     }
 
-    ESP_LOGI(TAG, "Received message from %s: %s (msg_id=%s, sender=%s)",
-             fs_msg->chat_id, fs_msg->content, fs_msg->msg_id, fs_msg->sender_id);
+    ESP_LOGI(TAG, "[Feishu] Received message from %s: %s (msg_id=%s, sender=%s, type=%s)",
+             fs_msg->chat_id, fs_msg->content, fs_msg->msg_id, fs_msg->sender_id,
+             fs_msg->chat_type == FEISHU_CHAT_TYPE_P2P ? "P2P" : "GROUP");
 
     if (!feishu_should_process_message(fs_msg)) {
         return;
@@ -80,12 +81,12 @@ void feishu_on_message_ex(const feishu_message_t *fs_msg)
 
     if (fs_msg->chat_type == FEISHU_CHAT_TYPE_P2P) {
         if (!feishu_config_is_user_allowed(fs_msg->sender_id)) {
-            ESP_LOGW(TAG, "User %s not in allowed users list, skip", fs_msg->sender_id);
+            ESP_LOGW(TAG, "[Feishu] User %s not in allowed users list, skip", fs_msg->sender_id);
             return;
         }
     } else if (fs_msg->chat_type == FEISHU_CHAT_TYPE_GROUP) {
         if (!feishu_config_is_group_allowed(fs_msg->chat_id)) {
-            ESP_LOGW(TAG, "Group %s not in allowed groups list, skip", fs_msg->chat_id);
+            ESP_LOGW(TAG, "[Feishu] Group %s not in allowed groups list, skip", fs_msg->chat_id);
             return;
         }
     }

@@ -333,6 +333,29 @@ static void process_updates(const char *json_str)
             msg_id_val = (int)message_id->valuedouble;
         }
 
+        /* Extract sender_id (from field) */
+        char sender_id_str[64] = {0};
+        cJSON *from = cJSON_GetObjectItem(message, "from");
+        if (from) {
+            cJSON *from_id = cJSON_GetObjectItem(from, "id");
+            if (cJSON_IsString(from_id) && from_id->valuestring) {
+                strncpy(sender_id_str, from_id->valuestring, sizeof(sender_id_str) - 1);
+                sender_id_str[sizeof(sender_id_str) - 1] = '\0';
+            } else if (cJSON_IsNumber(from_id)) {
+                snprintf(sender_id_str, sizeof(sender_id_str), "%.0f", from_id->valuedouble);
+            }
+        }
+
+        /* Extract parent_id (reply_to_message) */
+        char parent_id_str[64] = {0};
+        cJSON *reply_to = cJSON_GetObjectItem(message, "reply_to_message");
+        if (reply_to) {
+            cJSON *reply_msg_id = cJSON_GetObjectItem(reply_to, "message_id");
+            if (cJSON_IsNumber(reply_msg_id)) {
+                snprintf(parent_id_str, sizeof(parent_id_str), "%d", (int)reply_msg_id->valuedouble);
+            }
+        }
+
         char chat_id_str[32];
         if (cJSON_IsString(chat_id) && chat_id->valuestring) {
             strncpy(chat_id_str, chat_id->valuestring, sizeof(chat_id_str) - 1);
@@ -353,17 +376,21 @@ static void process_updates(const char *json_str)
             seen_msg_insert(msg_key);
         }
 
-        ESP_LOGI(TAG, "Message update_id=%" PRId64 " message_id=%d from chat %s: %.40s...",
-                 uid, msg_id_val, chat_id_str, text->valuestring);
+        ESP_LOGI(TAG, "[Telegram] Message update_id=%" PRId64 " message_id=%d from %s (sender=%s): %.40s...",
+                 uid, msg_id_val, chat_id_str, sender_id_str[0] ? sender_id_str : "(unknown)", text->valuestring);
 
         /* Push to inbound bus */
         mimi_msg_t msg = {0};
         strncpy(msg.channel, MIMI_CHAN_TELEGRAM, sizeof(msg.channel) - 1);
         strncpy(msg.chat_id, chat_id_str, sizeof(msg.chat_id) - 1);
+        snprintf(msg.message_id, sizeof(msg.message_id), "%d", msg_id_val);
+        strncpy(msg.sender_id, sender_id_str, sizeof(msg.sender_id) - 1);
+        strncpy(msg.parent_id, parent_id_str, sizeof(msg.parent_id) - 1);
+        msg.media_path[0] = '\0';
         msg.content = strdup(text->valuestring);
         if (msg.content) {
             if (message_bus_push_inbound(&msg) != ESP_OK) {
-                ESP_LOGW(TAG, "Inbound queue full, drop telegram message");
+                ESP_LOGW(TAG, "[Telegram] Inbound queue full, drop telegram message");
                 free(msg.content);
             }
         }

@@ -190,7 +190,10 @@ static void agent_loop_task(void *arg)
         esp_err_t err = message_bus_pop_inbound(&msg, UINT32_MAX);
         if (err != ESP_OK) continue;
 
-        ESP_LOGI(TAG, "Processing message from %s:%s", msg.channel, msg.chat_id);
+        ESP_LOGI(TAG, "[%s] Processing message from %s:%s (sender=%s, msg_id=%s)",
+                 msg.channel, msg.channel, msg.chat_id,
+                 msg.sender_id[0] ? msg.sender_id : "(unknown)",
+                 msg.message_id[0] ? msg.message_id : "(none)");
 
         /* 1. Build system prompt */
         context_build_system_prompt(system_prompt, MIMI_CONTEXT_BUF_SIZE);
