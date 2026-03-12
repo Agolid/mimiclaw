@@ -1,4 +1,5 @@
 #include "feishu_ws.h"
+#include "feishu.h"
 #include "feishu_config.h"
 #include "feishu_client.h"
 #include "feishu_message.h"
@@ -89,15 +90,10 @@ static void ws_event_handler(void *handler_args, esp_event_base_t base, int32_t 
                             if (body) {
                                 char *body_str = cJSON_PrintUnformatted(body);
                                 if (body_str) {
-                                    char content[4096] = {0};
-                                    feishu_message_get_text_content(body_str, content, sizeof(content));
-                                    if (content[0] != '\0') {
-                                        cJSON *header = cJSON_GetObjectItem(body, "header");
-                                        if (header) {
-                                            cJSON *chat_id_item = cJSON_GetObjectItem(header, "chat_id");
-                                            if (chat_id_item && cJSON_IsString(chat_id_item)) {
-                                                feishu_on_message(chat_id_item->valuestring, content);
-                                            }
+                                    feishu_message_t fs_msg;
+                                    if (feishu_message_parse(body_str, &fs_msg) == ESP_OK) {
+                                        if (fs_msg.content[0] != '\0') {
+                                            feishu_on_message_ex(&fs_msg);
                                         }
                                     }
                                     free(body_str);

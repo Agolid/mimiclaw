@@ -13,9 +13,13 @@
 
 /* Message types on the bus */
 typedef struct {
-    char channel[16];       /* "telegram", "websocket", "cli" */
+    char channel[16];       /* "telegram", "websocket", "cli", "feishu" */
     char chat_id[32];       /* Telegram chat_id or WS client id */
+    char message_id[64];   /* Message ID for reply/forward */
+    char sender_id[64];    /* Sender's user/group ID */
+    char parent_id[64];    /* Parent message ID for threading */
     char *content;          /* Heap-allocated message text (caller must free) */
+    char media_path[256];  /* Media file path (image/audio/file) */
 } mimi_msg_t;
 
 /**

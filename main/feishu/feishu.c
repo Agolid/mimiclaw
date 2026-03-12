@@ -3,6 +3,7 @@
 #include "feishu_client.h"
 #include "feishu_ws.h"
 #include "feishu_send.h"
+#include "feishu_message.h"
 #include "mimi_config.h"
 #include "bus/message_bus.h"
 #include "esp_log.h"
@@ -36,6 +37,32 @@ void feishu_on_message(const char *chat_id, const char *content)
     strncpy(msg.channel, MIMI_CHAN_FEISHU, sizeof(msg.channel) - 1);
     strncpy(msg.chat_id, chat_id, sizeof(msg.chat_id) - 1);
     msg.content = strdup(content);
+    message_bus_push_inbound(&msg);
+}
+
+void feishu_on_message_ex(const feishu_message_t *fs_msg)
+{
+    if (!fs_msg || !fs_msg->content || fs_msg->content[0] == '\0') {
+        ESP_LOGW(TAG, "Empty message, skip");
+        return;
+    }
+
+    ESP_LOGI(TAG, "Received message from %s: %s (msg_id=%s, sender=%s)",
+             fs_msg->chat_id, fs_msg->content, fs_msg->msg_id, fs_msg->sender_id);
+
+    if (s_message_callback) {
+        s_message_callback(fs_msg->chat_id, fs_msg->content);
+    }
+
+    mimi_msg_t msg = {0};
+    strncpy(msg.channel, MIMI_CHAN_FEISHU, sizeof(msg.channel) - 1);
+    strncpy(msg.chat_id, fs_msg->chat_id, sizeof(msg.chat_id) - 1);
+    strncpy(msg.message_id, fs_msg->msg_id, sizeof(msg.message_id) - 1);
+    strncpy(msg.sender_id, fs_msg->sender_id, sizeof(msg.sender_id) - 1);
+    strncpy(msg.parent_id, fs_msg->parent_id, sizeof(msg.parent_id) - 1);
+    msg.content = strdup(fs_msg->content);
+    msg.media_path[0] = '\0';
+
     message_bus_push_inbound(&msg);
 }
 
