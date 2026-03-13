@@ -38,7 +38,7 @@ jobs:
         run: |
           . "$IDF_PATH/export.sh"
           idf.py set-target esp32s3
-          idf.py fullclean
+          # idf.py fullclean
           idf.py build 2>&1 | tee build.log
 
       - name: Upload build log
