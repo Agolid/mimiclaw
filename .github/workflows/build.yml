@@ -20,6 +20,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install dependencies
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          echo "Checking Component Manager..."
+          idf-component-manager --version || echo "Component Manager not found"
+          echo "Checking git..."
+          git --version
+          echo "Checking python..."
+          python --version
+          echo "Checking idf_component.yml..."
+          cat main/idf_component.yml
+
       - name: Build firmware (ESP32-S3)
         shell: bash
         run: |
