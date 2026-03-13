@@ -18,9 +18,10 @@ jobs:
 
       - name: Download esp_websocket_client
         run: |
-          git clone --depth 1 --branch master https://github.com/espressif/esp-protocols.git /tmp/esp-protocols
-          mkdir -p $IDF_PATH/components/esp_websocket_client
-          cp -r /tmp/esp-protocols/components/esp_websocket_client/* $IDF_PATH/components/esp_websocket_client/
+          cd $IDF_PATH/components
+          git clone --depth 1 --branch master https://github.com/espressif/esp-protocols.git esp_websocket_client_component
+          cp -r esp_websocket_client_component/esp_websocket_client/* esp_websocket_client/
+          rm -rf esp_websocket_client_component
 
       - name: Build firmware (ESP32-S3)
         shell: bash
