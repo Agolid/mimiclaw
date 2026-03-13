@@ -19,18 +19,16 @@ static const char *TAG = "feishu_polling";
 #define FEISHU_POLL_INTERVAL_MS  30000  // 30秒轮询一次
 
 // HTTP响应缓冲区
-#define HTTP_RESPONSE_BUF_SIZE   4096
+#define HTTP_RESPONSE_BUF_SIZE   8192
 
 static bool s_polling_running = false;
 static bool s_connected = false;
 static TaskHandle_t s_poll_task_handle = NULL;
 static esp_http_client_handle_t s_http_client = NULL;
 
-// 飞书API endpoint
-static const char *FEISHU_API_BASE = "https://open.feishu.cn/open-apis/im/v1/messages";
-
-// 上次处理的消息时间戳，用于增量获取
-static char s_last_timestamp[32] = {0};
+// 响应缓冲区
+static char s_http_response[HTTP_RESPONSE_BUF_SIZE] = {0};
+static int s_http_response_len = 0;
 
 /**
  * @brief 构建带认证的飞书API URL
@@ -39,12 +37,6 @@ static char* feishu_polling_build_url(void)
 {
     static char url[512] = {0};
     const char *domain = feishu_config_get_domain();
-
-    char token[FEISHU_TOKEN_MAX_LEN];
-    if (feishu_client_get_tenant_token(token, sizeof(token)) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to get token for API URL");
-        return NULL;
-    }
 
     if (strcmp(domain, "lark") == 0) {
         snprintf(url, sizeof(url),
@@ -65,34 +57,82 @@ static char* feishu_polling_build_url(void)
 static esp_err_t feishu_polling_http_event_handler(esp_http_client_event_t *evt)
 {
     switch (evt->event_id) {
-    case HTTP_EVENT_ERROR:
-        ESP_LOGE(TAG, "HTTP_EVENT_ERROR: %d", evt->error_handle);
-        break;
-
-    case HTTP_EVENT_ON_CONNECTED:
-        ESP_LOGI(TAG, "HTTP connected");
-        break;
-
-    case HTTP_EVENT_HEADER_SENT:
-        ESP_LOGD(TAG, "HTTP header sent");
-        break;
-
     case HTTP_EVENT_ON_DATA:
-        ESP_LOGD(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
+        // 复制响应数据到缓冲区
+        int copy_len = evt->data_len;
+        if (s_http_response_len + copy_len < HTTP_RESPONSE_BUF_SIZE - 1) {
+            memcpy(s_http_response + s_http_response_len, evt->data, copy_len);
+            s_http_response_len += copy_len;
+        }
         break;
 
     case HTTP_EVENT_ON_FINISH:
-        ESP_LOGD(TAG, "HTTP finished");
+        ESP_LOGI(TAG, "HTTP request finished, total length: %d", s_http_response_len);
         break;
 
     case HTTP_EVENT_DISCONNECTED:
         ESP_LOGD(TAG, "HTTP disconnected");
         break;
 
+    case HTTP_EVENT_ERROR:
+        ESP_LOGE(TAG, "HTTP error: %d", evt->error_handle);
+        break;
+
     default:
         break;
     }
     return ESP_OK;
+}
+
+/**
+ * @brief 解析并处理飞书消息
+ */
+static void feishu_polling_process_response(void)
+{
+    if (s_http_response_len == 0) {
+        ESP_LOGW(TAG, "Empty response");
+        return;
+    }
+
+    s_http_response[s_http_response_len] = '\0';
+    ESP_LOGI(TAG, "Polling response: %s", s_http_response);
+
+    // 解析JSON响应
+    cJSON *root = cJSON_Parse(s_http_response);
+    if (!root) {
+        ESP_LOGE(TAG, "Failed to parse JSON response");
+        return;
+    }
+
+    cJSON *data = cJSON_GetObjectItem(root, "data");
+    if (cJSON_IsArray(data)) {
+        int msg_count = cJSON_GetArraySize(data);
+        ESP_LOGI(TAG, "Got %d messages", msg_count);
+
+        // 从后往前处理（最新的在前）
+        for (int i = msg_count - 1; i >= 0; i--) {
+            cJSON *item = cJSON_GetArrayItem(data, i);
+            cJSON *body = cJSON_GetObjectItem(item, "body");
+            if (cJSON_IsString(body)) {
+                char *body_str = cJSON_PrintUnformatted(body);
+                if (body_str) {
+                    feishu_message_t fs_msg;
+                    if (feishu_message_parse(body_str, &fs_msg) == ESP_OK) {
+                        if (fs_msg.content[0] != '\0') {
+                            // 调用消息处理回调（和WebSocket版本一样）
+                            extern void feishu_on_message_ex(const feishu_message_t *msg);
+                            feishu_on_message_ex(&fs_msg);
+                        }
+                    }
+                    free(body_str);
+                }
+            }
+        }
+
+        s_connected = true;
+    }
+
+    cJSON_Delete(root);
 }
 
 /**
@@ -113,6 +153,9 @@ static esp_err_t feishu_polling_request(void)
 
     char auth_header[256];
     snprintf(auth_header, sizeof(auth_header), "Authorization: Bearer %s", token);
+
+    // 清空响应缓冲区
+    s_http_response_len = 0;
 
     // 配置HTTP客户端
     esp_http_client_config_t config = {
@@ -142,57 +185,8 @@ static esp_err_t feishu_polling_request(void)
         return err;
     }
 
-    // 获取响应内容
-    int content_length = esp_http_client_get_content_length(s_http_client);
-    if (content_length > 0 && content_length < HTTP_RESPONSE_BUF_SIZE) {
-        char *response = (char *)malloc(content_length + 1);
-        if (response) {
-            int read_len = esp_http_client_read_response(s_http_client, response, content_length);
-            if (read_len == content_length) {
-                response[read_len] = '\0';
-
-                ESP_LOGI(TAG, "Polling response: %.*s", read_len > 200 ? 200 : read_len, response);
-
-                // 解析JSON响应
-                cJSON *root = cJSON_Parse(response);
-                if (root) {
-                    cJSON *data = cJSON_GetObjectItem(root, "data");
-                    if (cJSON_IsArray(data)) {
-                        int msg_count = cJSON_GetArraySize(data);
-                        ESP_LOGI(TAG, "Got %d messages", msg_count);
-
-                        // 从后往前处理（最新的在前）
-                        for (int i = msg_count - 1; i >= 0; i--) {
-                            cJSON *item = cJSON_GetArrayItem(data, i);
-                            cJSON *body = cJSON_GetObjectItem(item, "body");
-                            if (cJSON_IsString(body)) {
-                                char *body_str = cJSON_PrintUnformatted(body);
-                                if (body_str) {
-                                    feishu_message_t fs_msg;
-                                    if (feishu_message_parse(body_str, &fs_msg) == ESP_OK) {
-                                        if (fs_msg.content[0] != '\0') {
-                                            // 调用消息处理回调（和WebSocket版本一样）
-                                            extern void feishu_on_message_ex(const feishu_message_t *msg);
-                                            feishu_on_message_ex(&fs_msg);
-                                        }
-                                    }
-                                    free(body_str);
-                                }
-                            }
-                        }
-
-                        s_connected = true;
-                    }
-                    cJSON_Delete(root);
-                }
-                free(response);
-            } else {
-                ESP_LOGE(TAG, "Failed to allocate response buffer");
-            }
-        } else {
-            ESP_LOGW(TAG, "No response content");
-        }
-    }
+    // 处理响应
+    feishu_polling_process_response();
 
     esp_http_client_cleanup(s_http_client);
     s_http_client = NULL;
