@@ -12,14 +12,12 @@
 #include "mimi_config.h"
 #include "bus/message_bus.h"
 #include "wifi/wifi_manager.h"
-#include "feishu/feishu.h"
-#include "telegram/telegram_bot.h"
+#include "channels/telegram/telegram_bot.h"
+#include "channels/feishu/feishu_bot.h"
 #include "llm/llm_proxy.h"
 #include "agent/agent_loop.h"
 #include "memory/memory_store.h"
 #include "memory/session_mgr.h"
-#include "memory/memory_stats.h"
-#include "common/retry_utils.h"
 #include "gateway/ws_server.h"
 #include "cli/serial_cli.h"
 #include "proxy/http_proxy.h"
@@ -27,6 +25,7 @@
 #include "cron/cron_service.h"
 #include "heartbeat/heartbeat.h"
 #include "skills/skill_loader.h"
+#include "onboard/wifi_onboard.h"
 
 static const char *TAG = "mimi";
 
@@ -72,41 +71,31 @@ static void outbound_dispatch_task(void *arg)
         mimi_msg_t msg;
         if (message_bus_pop_outbound(&msg, UINT32_MAX) != ESP_OK) continue;
 
-        ESP_LOGI(TAG, "[%s] Dispatching response to %s:%s (%d bytes)",
-                 msg.channel, msg.channel, msg.chat_id, (int)strlen(msg.content));
-
-        esp_err_t send_err = ESP_OK;
+        ESP_LOGI(TAG, "Dispatching response to %s:%s", msg.channel, msg.chat_id);
 
         if (strcmp(msg.channel, MIMI_CHAN_TELEGRAM) == 0) {
-            send_err = telegram_send_message(msg.chat_id, msg.content);
+            esp_err_t send_err = telegram_send_message(msg.chat_id, msg.content);
             if (send_err != ESP_OK) {
-                ERROR_LOG_DETAIL(TAG, send_err, "Telegram send failed");
-                if (error_is_retryable(send_err)) {
-                    ESP_LOGW(TAG, "[Telegram] Retryable error, will retry on next poll");
-                }
+                ESP_LOGE(TAG, "Telegram send failed for %s: %s", msg.chat_id, esp_err_to_name(send_err));
             } else {
-                ESP_LOGI(TAG, "[Telegram] Send success for %s (%d bytes)", msg.chat_id, (int)strlen(msg.content));
-            }
-        } else if (strcmp(msg.channel, MIMI_CHAN_WEBSOCKET) == 0) {
-            send_err = ws_server_send(msg.chat_id, msg.content);
-            if (send_err != ESP_OK) {
-                ESP_LOGW(TAG, "[WebSocket] Send failed for %s: %s", msg.chat_id, esp_err_to_name(send_err));
+                ESP_LOGI(TAG, "Telegram send success for %s (%d bytes)", msg.chat_id, (int)strlen(msg.content));
             }
         } else if (strcmp(msg.channel, MIMI_CHAN_FEISHU) == 0) {
-            send_err = feishu_send(msg.chat_id, msg.content);
+            esp_err_t send_err = feishu_send_message(msg.chat_id, msg.content);
             if (send_err != ESP_OK) {
-                ERROR_LOG_DETAIL(TAG, send_err, "Feishu send failed");
-                if (error_is_retryable(send_err)) {
-                    ESP_LOGW(TAG, "[Feishu] Retryable error, will retry on next message");
-                }
+                ESP_LOGE(TAG, "Feishu send failed for %s: %s", msg.chat_id, esp_err_to_name(send_err));
             } else {
-                ESP_LOGI(TAG, "[Feishu] Send success for %s (%d bytes)", msg.chat_id, (int)strlen(msg.content));
+                ESP_LOGI(TAG, "Feishu send success for %s (%d bytes)", msg.chat_id, (int)strlen(msg.content));
+            }
+        } else if (strcmp(msg.channel, MIMI_CHAN_WEBSOCKET) == 0) {
+            esp_err_t ws_err = ws_server_send(msg.chat_id, msg.content);
+            if (ws_err != ESP_OK) {
+                ESP_LOGW(TAG, "WS send failed for %s: %s", msg.chat_id, esp_err_to_name(ws_err));
             }
         } else if (strcmp(msg.channel, MIMI_CHAN_SYSTEM) == 0) {
-            ESP_LOGI(TAG, "[System] Message [%s]: %.128s", msg.chat_id, msg.content);
+            ESP_LOGI(TAG, "System message [%s]: %.128s", msg.chat_id, msg.content);
         } else {
             ESP_LOGW(TAG, "Unknown channel: %s", msg.channel);
-            send_err = ESP_ERR_NOT_SUPPORTED;
         }
 
         free(msg.content);
@@ -136,13 +125,12 @@ void app_main(void)
     /* Initialize subsystems */
     ESP_ERROR_CHECK(message_bus_init());
     ESP_ERROR_CHECK(memory_store_init());
-    ESP_ERROR_CHECK(memory_stats_init());
     ESP_ERROR_CHECK(skill_loader_init());
     ESP_ERROR_CHECK(session_mgr_init());
     ESP_ERROR_CHECK(wifi_manager_init());
     ESP_ERROR_CHECK(http_proxy_init());
-    ESP_ERROR_CHECK(feishu_init());
     ESP_ERROR_CHECK(telegram_bot_init());
+    ESP_ERROR_CHECK(feishu_bot_init());
     ESP_ERROR_CHECK(llm_proxy_init());
     ESP_ERROR_CHECK(tool_registry_init());
     ESP_ERROR_CHECK(cron_service_init());
@@ -154,36 +142,48 @@ void app_main(void)
 
     /* Start WiFi */
     esp_err_t wifi_err = wifi_manager_start();
+    bool wifi_ok = false;
     if (wifi_err == ESP_OK) {
         ESP_LOGI(TAG, "Scanning nearby APs on boot...");
         wifi_manager_scan_and_print();
         ESP_LOGI(TAG, "Waiting for WiFi connection...");
         if (wifi_manager_wait_connected(30000) == ESP_OK) {
+            wifi_ok = true;
             ESP_LOGI(TAG, "WiFi connected: %s", wifi_manager_get_ip());
-
-            /* Outbound dispatch task should start first to avoid dropping early replies. */
-            ESP_ERROR_CHECK((xTaskCreatePinnedToCore(
-                outbound_dispatch_task, "outbound",
-                MIMI_OUTBOUND_STACK, NULL,
-                MIMI_OUTBOUND_PRIO, NULL, MIMI_OUTBOUND_CORE) == pdPASS)
-                ? ESP_OK : ESP_FAIL);
-
-            /* Start network-dependent services */
-            ESP_ERROR_CHECK(agent_loop_start());
-            if (feishu_is_configured()) {
-                feishu_start();
-            }
-            ESP_ERROR_CHECK(telegram_bot_start());
-            cron_service_start();
-            heartbeat_start();
-            ESP_ERROR_CHECK(ws_server_start());
-
-            ESP_LOGI(TAG, "All services started!");
         } else {
-            ESP_LOGW(TAG, "WiFi connection timeout. Check MIMI_SECRET_WIFI_SSID in mimi_secrets.h");
+            ESP_LOGW(TAG, "WiFi connection timeout");
         }
     } else {
-        ESP_LOGW(TAG, "No WiFi credentials. Set MIMI_SECRET_WIFI_SSID in mimi_secrets.h");
+        ESP_LOGW(TAG, "No WiFi credentials configured");
+    }
+
+    if (!wifi_ok) {
+        ESP_LOGW(TAG, "Entering WiFi onboarding mode...");
+        wifi_onboard_start(WIFI_ONBOARD_MODE_CAPTIVE);  /* blocks, restarts on success */
+        return;  /* unreachable */
+    }
+
+    if (wifi_onboard_start(WIFI_ONBOARD_MODE_ADMIN) != ESP_OK) {
+        ESP_LOGW(TAG, "Local admin portal unavailable; continuing without config hotspot");
+    }
+
+    {
+        /* Outbound dispatch task should start first to avoid dropping early replies. */
+        ESP_ERROR_CHECK((xTaskCreatePinnedToCore(
+            outbound_dispatch_task, "outbound",
+            MIMI_OUTBOUND_STACK, NULL,
+            MIMI_OUTBOUND_PRIO, NULL, MIMI_OUTBOUND_CORE) == pdPASS)
+            ? ESP_OK : ESP_FAIL);
+
+        /* Start network-dependent services */
+        ESP_ERROR_CHECK(agent_loop_start());
+        ESP_ERROR_CHECK(telegram_bot_start());
+        ESP_ERROR_CHECK(feishu_bot_start());
+        cron_service_start();
+        heartbeat_start();
+        ESP_ERROR_CHECK(ws_server_start());
+
+        ESP_LOGI(TAG, "All services started!");
     }
 
     ESP_LOGI(TAG, "MimiClaw ready. Type 'help' for CLI commands.");

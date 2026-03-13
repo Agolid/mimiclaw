@@ -1,10 +1,9 @@
 #include "serial_cli.h"
 #include "mimi_config.h"
 #include "wifi/wifi_manager.h"
-#include "telegram/telegram_bot.h"
+#include "channels/telegram/telegram_bot.h"
+#include "channels/feishu/feishu_bot.h"
 #include "llm/llm_proxy.h"
-#include "llm/llm_config.h"
-#include "llm/llm_fallback.h"
 #include "memory/memory_store.h"
 #include "memory/session_mgr.h"
 #include "proxy/http_proxy.h"
@@ -25,6 +24,9 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "argtable3/argtable3.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
 
 static const char *TAG = "cli";
 
@@ -72,6 +74,47 @@ static int cmd_set_tg_token(int argc, char **argv)
     telegram_set_token(tg_token_args.token->sval[0]);
     printf("Telegram bot token saved.\n");
     return 0;
+}
+
+/* --- set_feishu_creds command --- */
+static struct {
+    struct arg_str *app_id;
+    struct arg_str *app_secret;
+    struct arg_end *end;
+} feishu_creds_args;
+
+/* --- feishu_send command --- */
+static struct {
+    struct arg_str *receive_id;
+    struct arg_str *text;
+    struct arg_end *end;
+} feishu_send_args;
+
+static int cmd_set_feishu_creds(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&feishu_creds_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, feishu_creds_args.end, argv[0]);
+        return 1;
+    }
+    feishu_set_credentials(feishu_creds_args.app_id->sval[0],
+                          feishu_creds_args.app_secret->sval[0]);
+    printf("Feishu credentials saved.\n");
+    return 0;
+}
+
+static int cmd_feishu_send(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&feishu_send_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, feishu_send_args.end, argv[0]);
+        return 1;
+    }
+
+    esp_err_t err = feishu_send_message(feishu_send_args.receive_id->sval[0],
+                                        feishu_send_args.text->sval[0]);
+    printf("feishu_send status: %s\n", esp_err_to_name(err));
+    return (err == ESP_OK) ? 0 : 1;
 }
 
 /* --- set_api_key command --- */
@@ -125,86 +168,6 @@ static int cmd_set_model_provider(int argc, char **argv)
     }
     llm_set_provider(provider_args.provider->sval[0]);
     printf("Model provider set.\n");
-    return 0;
-}
-
-/* --- set_base_url command --- */
-static struct {
-    struct arg_str *url;
-    struct arg_end *end;
-} base_url_args;
-
-static int cmd_set_base_url(int argc, char **argv)
-{
-    int nerrors = arg_parse(argc, argv, (void **)&base_url_args);
-    if (nerrors != 0) {
-        arg_print_errors(stderr, base_url_args.end, argv[0]);
-        return 1;
-    }
-    llm_set_base_url(base_url_args.url->sval[0]);
-    printf("Base URL saved.\n");
-    return 0;
-}
-
-/* --- model list command --- */
-static int cmd_model_list(int argc, char **argv)
-{
-    int model_count = llm_get_model_count();
-    if (model_count == 0) {
-        printf("No models registered.\n");
-        return 0;
-    }
-
-    const llm_model_config_t *current = llm_get_current_model();
-
-    printf("=== Registered Models (%d) ===\n", model_count);
-    for (int i = 0; i < model_count; i++) {
-        const llm_model_config_t *model = &g_llm_models[i];
-        const char *marker = (model == current) ? " [CURRENT]" : "";
-
-        printf("%2d. %s%s\n", i + 1, model->name, marker);
-        printf("    Provider: %s\n", model->provider);
-        printf("    Priority: %d\n", model->priority);
-        printf("    Tools: %s, Vision: %s, Max Tokens: %d\n",
-               model->supports_tools ? "yes" : "no",
-               model->supports_vision ? "yes" : "no",
-               model->max_tokens);
-        if (model->base_url[0]) {
-            printf("    Base URL: %s\n", model->base_url);
-        }
-        printf("\n");
-    }
-    return 0;
-}
-
-/* --- model switch command --- */
-static struct {
-    struct arg_str *name;
-    struct arg_end *end;
-} model_switch_args;
-
-static int cmd_model_switch(int argc, char **argv)
-{
-    int nerrors = arg_parse(argc, argv, (void **)&model_switch_args);
-    if (nerrors != 0) {
-        arg_print_errors(stderr, model_switch_args.end, argv[0]);
-        return 1;
-    }
-
-    const char *model_name = model_switch_args.name->sval[0];
-    esp_err_t err = llm_switch_model(model_name);
-
-    if (err == ESP_OK) {
-        const llm_model_config_t *model = llm_get_current_model();
-        printf("Switched to %s (provider: %s)\n", model->name, model->provider);
-    } else if (err == ESP_ERR_NOT_FOUND) {
-        printf("Model '%s' not found. Use 'model list' to see available models.\n", model_name);
-        return 1;
-    } else {
-        printf("Failed to switch model: %s\n", esp_err_to_name(err));
-        return 1;
-    }
-
     return 0;
 }
 
@@ -336,6 +299,24 @@ static int cmd_set_search_key(int argc, char **argv)
     }
     tool_web_search_set_key(search_key_args.key->sval[0]);
     printf("Search API key saved.\n");
+    return 0;
+}
+
+/* --- set_tavily_key command --- */
+static struct {
+    struct arg_str *key;
+    struct arg_end *end;
+} tavily_key_args;
+
+static int cmd_set_tavily_key(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&tavily_key_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, tavily_key_args.end, argv[0]);
+        return 1;
+    }
+    tool_web_search_set_tavily_key(tavily_key_args.key->sval[0]);
+    printf("Tavily API key saved.\n");
     return 0;
 }
 
@@ -547,6 +528,32 @@ static void print_config(const char *label, const char *ns, const char *key,
     }
 }
 
+static void print_config_u16(const char *label, const char *ns, const char *key,
+                             const char *build_val)
+{
+    char nvs_val[16] = {0};
+    const char *source = "not set";
+    const char *display = "(empty)";
+
+    nvs_handle_t nvs;
+    if (nvs_open(ns, NVS_READONLY, &nvs) == ESP_OK) {
+        uint16_t value = 0;
+        if (nvs_get_u16(nvs, key, &value) == ESP_OK && value > 0) {
+            snprintf(nvs_val, sizeof(nvs_val), "%u", (unsigned)value);
+            source = "NVS";
+            display = nvs_val;
+        }
+        nvs_close(nvs);
+    }
+
+    if (strcmp(source, "not set") == 0 && build_val[0] != '\0') {
+        source = "build";
+        display = build_val;
+    }
+
+    printf("  %-14s: %s  [%s]\n", label, display, source);
+}
+
 static int cmd_config_show(int argc, char **argv)
 {
     printf("=== Current Configuration ===\n");
@@ -556,10 +563,10 @@ static int cmd_config_show(int argc, char **argv)
     print_config("API Key",    MIMI_NVS_LLM,    MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_API_KEY,    true);
     print_config("Model",      MIMI_NVS_LLM,    MIMI_NVS_KEY_MODEL,    MIMI_SECRET_MODEL,      false);
     print_config("Provider",   MIMI_NVS_LLM,    MIMI_NVS_KEY_PROVIDER, MIMI_SECRET_MODEL_PROVIDER, false);
-    print_config("Base URL",   MIMI_NVS_LLM,    MIMI_NVS_KEY_BASE_URL, MIMI_SECRET_BASE_URL,  false);
     print_config("Proxy Host", MIMI_NVS_PROXY,  MIMI_NVS_KEY_PROXY_HOST, MIMI_SECRET_PROXY_HOST, false);
-    print_config("Proxy Port", MIMI_NVS_PROXY,  MIMI_NVS_KEY_PROXY_PORT, MIMI_SECRET_PROXY_PORT, false);
+    print_config_u16("Proxy Port", MIMI_NVS_PROXY, MIMI_NVS_KEY_PROXY_PORT, MIMI_SECRET_PROXY_PORT);
     print_config("Search Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_SEARCH_KEY, true);
+    print_config("Tavily Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_TAVILY_KEY, MIMI_SECRET_TAVILY_KEY, true);
     printf("=============================\n");
     return 0;
 }
@@ -625,6 +632,137 @@ static int cmd_tool_exec(int argc, char **argv)
 
     esp_err_t err = tool_registry_execute(tool_name, input_json, output, 4096);
     printf("tool_exec status: %s\n", esp_err_to_name(err));
+    printf("%s\n", output[0] ? output : "(empty)");
+    free(output);
+    return (err == ESP_OK) ? 0 : 1;
+}
+
+/* --- web_search command --- */
+static struct {
+    struct arg_str *query;
+    struct arg_end *end;
+} web_search_args;
+
+typedef struct {
+    const char *input_json;
+    char *output;
+    size_t output_size;
+    esp_err_t err;
+    SemaphoreHandle_t done;
+} web_search_task_ctx_t;
+
+static void web_search_task(void *arg)
+{
+    web_search_task_ctx_t *task_ctx = (web_search_task_ctx_t *)arg;
+    task_ctx->err = tool_web_search_execute(task_ctx->input_json, task_ctx->output, task_ctx->output_size);
+    xSemaphoreGive(task_ctx->done);
+    vTaskDelete(NULL);
+}
+
+static bool json_escape_string(const char *in, char *out, size_t out_size)
+{
+    if (!in || !out || out_size == 0) return false;
+    size_t o = 0;
+    for (size_t i = 0; in[i] != '\0'; ++i) {
+        const char c = in[i];
+        const char *esc = NULL;
+        switch (c) {
+            case '\\': esc = "\\\\"; break;
+            case '\"': esc = "\\\""; break;
+            case '\n': esc = "\\n"; break;
+            case '\r': esc = "\\r"; break;
+            case '\t': esc = "\\t"; break;
+            default: break;
+        }
+        if (esc) {
+            size_t n = strlen(esc);
+            if (o + n >= out_size) return false;
+            memcpy(&out[o], esc, n);
+            o += n;
+            continue;
+        }
+        if ((unsigned char)c < 0x20) {
+            continue;
+        }
+        if (o + 1 >= out_size) return false;
+        out[o++] = c;
+    }
+    out[o] = '\0';
+    return true;
+}
+
+static int cmd_web_search(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&web_search_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, web_search_args.end, argv[0]);
+        return 1;
+    }
+
+    char escaped_query[512];
+    if (!json_escape_string(web_search_args.query->sval[0], escaped_query, sizeof(escaped_query))) {
+        printf("Query too long.\n");
+        return 1;
+    }
+
+    char input_json[640];
+    int n = snprintf(input_json, sizeof(input_json), "{\"query\":\"%s\"}", escaped_query);
+    if (n <= 0 || n >= (int)sizeof(input_json)) {
+        printf("Query too long.\n");
+        return 1;
+    }
+
+    char *output = calloc(1, 4096);
+    if (!output) {
+        printf("Out of memory.\n");
+        return 1;
+    }
+
+    web_search_task_ctx_t *ctx = calloc(1, sizeof(*ctx));
+    char *input_copy = strdup(input_json);
+    if (!ctx || !input_copy) {
+        free(input_copy);
+        free(ctx);
+        free(output);
+        printf("Out of memory.\n");
+        return 1;
+    }
+
+    ctx->input_json = input_copy;
+    ctx->output = output;
+    ctx->output_size = 4096;
+    ctx->done = xSemaphoreCreateBinary();
+    if (!ctx->done) {
+        free(input_copy);
+        free(ctx);
+        free(output);
+        printf("Out of memory.\n");
+        return 1;
+    }
+
+    if (xTaskCreate(web_search_task, "cli_web_search", 20 * 1024, ctx, 5, NULL) != pdPASS) {
+        vSemaphoreDelete(ctx->done);
+        free(input_copy);
+        free(ctx);
+        free(output);
+        printf("Failed to start web_search task.\n");
+        return 1;
+    }
+
+    if (xSemaphoreTake(ctx->done, pdMS_TO_TICKS(45000)) != pdTRUE) {
+        printf("web_search status: timeout\n");
+        vSemaphoreDelete(ctx->done);
+        free(input_copy);
+        free(ctx);
+        free(output);
+        return 1;
+    }
+    esp_err_t err = ctx->err;
+    vSemaphoreDelete(ctx->done);
+    free(input_copy);
+    free(ctx);
+
+    printf("web_search status: %s\n", esp_err_to_name(err));
     printf("%s\n", output[0] ? output : "(empty)");
     free(output);
     return (err == ESP_OK) ? 0 : 1;
@@ -702,6 +840,30 @@ esp_err_t serial_cli_init(void)
     };
     esp_console_cmd_register(&tg_token_cmd);
 
+    /* set_feishu_creds */
+    feishu_creds_args.app_id = arg_str1(NULL, NULL, "<app_id>", "Feishu App ID");
+    feishu_creds_args.app_secret = arg_str1(NULL, NULL, "<app_secret>", "Feishu App Secret");
+    feishu_creds_args.end = arg_end(2);
+    esp_console_cmd_t feishu_creds_cmd = {
+        .command = "set_feishu_creds",
+        .help = "Set Feishu app credentials (app_id app_secret)",
+        .func = &cmd_set_feishu_creds,
+        .argtable = &feishu_creds_args,
+    };
+    esp_console_cmd_register(&feishu_creds_cmd);
+
+    /* feishu_send */
+    feishu_send_args.receive_id = arg_str1(NULL, NULL, "<receive_id>", "Feishu open_id/chat_id");
+    feishu_send_args.text = arg_str1(NULL, NULL, "<text>", "Text message (quote if contains spaces)");
+    feishu_send_args.end = arg_end(2);
+    esp_console_cmd_t feishu_send_cmd = {
+        .command = "feishu_send",
+        .help = "Send Feishu text: feishu_send <open_id|chat_id> \"hello\"",
+        .func = &cmd_feishu_send,
+        .argtable = &feishu_send_args,
+    };
+    esp_console_cmd_register(&feishu_send_cmd);
+
     /* set_api_key */
     api_key_args.key = arg_str1(NULL, NULL, "<key>", "LLM API key");
     api_key_args.end = arg_end(1);
@@ -734,36 +896,6 @@ esp_err_t serial_cli_init(void)
         .argtable = &provider_args,
     };
     esp_console_cmd_register(&provider_cmd);
-
-    /* set_base_url */
-    base_url_args.url = arg_str1(NULL, NULL, "<url>", "Custom API base URL (e.g. https://api.longcat.chat/openai/v1)");
-    base_url_args.end = arg_end(1);
-    esp_console_cmd_t base_url_cmd = {
-        .command = "set_base_url",
-        .help = "Set custom OpenAI-compatible API base URL",
-        .func = &cmd_set_base_url,
-        .argtable = &base_url_args,
-    };
-    esp_console_cmd_register(&base_url_cmd);
-
-    /* model list */
-    esp_console_cmd_t model_list_cmd = {
-        .command = "model list",
-        .help = "List all registered models",
-        .func = &cmd_model_list,
-    };
-    esp_console_cmd_register(&model_list_cmd);
-
-    /* model switch */
-    model_switch_args.name = arg_str1(NULL, NULL, "<name>", "Model name to switch to");
-    model_switch_args.end = arg_end(1);
-    esp_console_cmd_t model_switch_cmd = {
-        .command = "model switch",
-        .help = "Switch to a different model",
-        .func = &cmd_model_switch,
-        .argtable = &model_switch_args,
-    };
-    esp_console_cmd_register(&model_switch_cmd);
 
     /* skill_list */
     esp_console_cmd_t skill_list_cmd = {
@@ -852,6 +984,17 @@ esp_err_t serial_cli_init(void)
     };
     esp_console_cmd_register(&search_key_cmd);
 
+    /* set_tavily_key */
+    tavily_key_args.key = arg_str1(NULL, NULL, "<key>", "Tavily Search API key");
+    tavily_key_args.end = arg_end(1);
+    esp_console_cmd_t tavily_key_cmd = {
+        .command = "set_tavily_key",
+        .help = "Set Tavily API key for web_search tool",
+        .func = &cmd_set_tavily_key,
+        .argtable = &tavily_key_args,
+    };
+    esp_console_cmd_register(&tavily_key_cmd);
+
     /* set_proxy */
     proxy_args.host = arg_str1(NULL, NULL, "<host>", "Proxy host/IP");
     proxy_args.port = arg_int1(NULL, NULL, "<port>", "Proxy port");
@@ -912,6 +1055,17 @@ esp_err_t serial_cli_init(void)
         .func = &cmd_tool_exec,
     };
     esp_console_cmd_register(&tool_exec_cmd);
+
+    /* web_search */
+    web_search_args.query = arg_str1(NULL, NULL, "<query>", "Search query");
+    web_search_args.end = arg_end(1);
+    esp_console_cmd_t web_search_cmd = {
+        .command = "web_search",
+        .help = "Run web search tool directly (e.g. web_search \"latest esp-idf\")",
+        .func = &cmd_web_search,
+        .argtable = &web_search_args,
+    };
+    esp_console_cmd_register(&web_search_cmd);
 
     /* restart */
     esp_console_cmd_t restart_cmd = {

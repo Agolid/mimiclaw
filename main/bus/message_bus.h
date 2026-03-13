@@ -6,20 +6,16 @@
 
 /* Channel identifiers */
 #define MIMI_CHAN_TELEGRAM   "telegram"
+#define MIMI_CHAN_FEISHU     "feishu"
 #define MIMI_CHAN_WEBSOCKET  "websocket"
 #define MIMI_CHAN_CLI        "cli"
 #define MIMI_CHAN_SYSTEM     "system"
-#define MIMI_CHAN_FEISHU     "feishu"
 
 /* Message types on the bus */
 typedef struct {
-    char channel[16];       /* "telegram", "websocket", "cli", "feishu" */
-    char chat_id[32];       /* Telegram chat_id or WS client id */
-    char message_id[64];   /* Message ID for reply/forward */
-    char sender_id[64];    /* Sender's user/group ID */
-    char parent_id[64];    /* Parent message ID for threading */
+    char channel[16];       /* "telegram", "websocket", "cli" */
+    char chat_id[96];       /* Telegram/Feishu chat_id, open_id, or WS client id */
     char *content;          /* Heap-allocated message text (caller must free) */
-    char media_path[256];  /* Media file path (image/audio/file) */
 } mimi_msg_t;
 
 /**

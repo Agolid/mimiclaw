@@ -4,7 +4,6 @@
 #include "bus/message_bus.h"
 #include "llm/llm_proxy.h"
 #include "memory/session_mgr.h"
-#include "memory/memory_stats.h"
 #include "tools/tool_registry.h"
 
 #include <string.h>
@@ -191,10 +190,7 @@ static void agent_loop_task(void *arg)
         esp_err_t err = message_bus_pop_inbound(&msg, UINT32_MAX);
         if (err != ESP_OK) continue;
 
-        ESP_LOGI(TAG, "[%s] Processing message from %s:%s (sender=%s, msg_id=%s)",
-                 msg.channel, msg.channel, msg.chat_id,
-                 msg.sender_id[0] ? msg.sender_id : "(unknown)",
-                 msg.message_id[0] ? msg.message_id : "(none)");
+        ESP_LOGI(TAG, "Processing message from %s:%s", msg.channel, msg.chat_id);
 
         /* 1. Build system prompt */
         context_build_system_prompt(system_prompt, MIMI_CONTEXT_BUF_SIZE);
@@ -321,12 +317,9 @@ static void agent_loop_task(void *arg)
         /* Free inbound message content */
         free(msg.content);
 
-        /* Log memory status every 10 messages */
-        static int msg_counter = 0;
-        if (++msg_counter >= 10) {
-            memory_stats_log("After 10 messages");
-            msg_counter = 0;
-        }
+        /* Log memory status */
+        ESP_LOGI(TAG, "Free PSRAM: %d bytes",
+                 (int)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     }
 }
 

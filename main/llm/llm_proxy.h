@@ -6,7 +6,6 @@
 #include <stdbool.h>
 
 #include "mimi_config.h"
-#include "llm_config.h"
 
 /**
  * Initialize the LLM proxy. Reads API key and model from build-time secrets, then NVS.
@@ -27,11 +26,6 @@ esp_err_t llm_set_provider(const char *provider);
  * Save the model identifier to NVS.
  */
 esp_err_t llm_set_model(const char *model);
-
-/**
- * Save the custom base URL for OpenAI-compatible API to NVS.
- */
-esp_err_t llm_set_base_url(const char *base_url);
 
 /* ── Tool Use Support ──────────────────────────────────────────── */
 

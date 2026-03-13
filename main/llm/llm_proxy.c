@@ -21,7 +21,6 @@ static const char *TAG = "llm";
 static char s_api_key[LLM_API_KEY_MAX_LEN] = {0};
 static char s_model[LLM_MODEL_MAX_LEN] = MIMI_LLM_DEFAULT_MODEL;
 static char s_provider[16] = MIMI_LLM_PROVIDER_DEFAULT;
-static char s_base_url[256] = {0};
 
 static void llm_log_payload(const char *label, const char *payload)
 {
@@ -188,115 +187,25 @@ static bool provider_is_openai(void)
     return strcmp(s_provider, "openai") == 0;
 }
 
-static bool provider_is_anthropic(void)
-{
-    return strcmp(s_provider, "anthropic") == 0;
-}
-
-static bool provider_is_minimax(void)
-{
-    return strcmp(s_provider, "minimax") == 0;
-}
-
-static bool provider_is_qwen(void)
-{
-    return strcmp(s_provider, "qwen") == 0;
-}
-
-static bool provider_is_moonshot(void)
-{
-    return strcmp(s_provider, "moonshot") == 0;
-}
-
-static bool provider_is_glm(void)
-{
-    return strcmp(s_provider, "glm") == 0;
-}
-
 static const char *llm_api_url(void)
 {
-    if (s_base_url[0] != '\0') {
-        return s_base_url;
-    }
-
-    /* Check custom base URL from current model config */
-    const llm_model_config_t *current = llm_get_current_model();
-    if (current && current->base_url[0] != '\0') {
-        return current->base_url;
-    }
-
-    /* Provider-specific URLs */
-    if (provider_is_openai()) {
-        return MIMI_OPENAI_API_URL;
-    }
-    if (provider_is_minimax()) {
-        return "https://api.minimax.chat/v1/chat/completions";
-    }
-    if (provider_is_qwen()) {
-        return "https://api-inference.modelscope.cn/v1/chat/completions";
-    }
-    if (provider_is_moonshot()) {
-        return "https://api.moonshot.cn/v1/chat/completions";
-    }
-    if (provider_is_glm()) {
-        return "https://open.bigmodel.cn/api/paas/v4/chat/completions";
-    }
-
-    /* Default to Anthropic */
-    return MIMI_LLM_API_URL;
+    return provider_is_openai() ? MIMI_OPENAI_API_URL : MIMI_LLM_API_URL;
 }
 
 static const char *llm_api_host(void)
 {
-    if (provider_is_openai()) {
-        return "api.openai.com";
-    }
-    if (provider_is_minimax()) {
-        return "api.minimax.chat";
-    }
-    if (provider_is_qwen()) {
-        return "api-inference.modelscope.cn";
-    }
-    if (provider_is_moonshot()) {
-        return "api.moonshot.cn";
-    }
-    if (provider_is_glm()) {
-        return "open.bigmodel.cn";
-    }
-
-    return "api.anthropic.com";
+    return provider_is_openai() ? "api.openai.com" : "api.anthropic.com";
 }
 
 static const char *llm_api_path(void)
 {
-    if (provider_is_anthropic()) {
-        return "/v1/messages";
-    }
-
-    /* All other providers use OpenAI-compatible /v1/chat/completions */
-    return "/v1/chat/completions";
-}
-
-static bool provider_is_openai_compatible(void)
-{
-    return provider_is_openai() ||
-           provider_is_minimax() ||
-           provider_is_qwen() ||
-           provider_is_moonshot() ||
-           provider_is_glm();
+    return provider_is_openai() ? "/v1/chat/completions" : "/v1/messages";
 }
 
 /* ── Init ─────────────────────────────────────────────────────── */
 
 esp_err_t llm_proxy_init(void)
 {
-    /* Initialize model configuration registry first */
-    esp_err_t err = llm_config_init();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize LLM config: %s", esp_err_to_name(err));
-        /* Continue anyway - backward compatibility */
-    }
-
     /* Start with build-time defaults */
     if (MIMI_SECRET_API_KEY[0] != '\0') {
         safe_copy(s_api_key, sizeof(s_api_key), MIMI_SECRET_API_KEY);
@@ -306,9 +215,6 @@ esp_err_t llm_proxy_init(void)
     }
     if (MIMI_SECRET_MODEL_PROVIDER[0] != '\0') {
         safe_copy(s_provider, sizeof(s_provider), MIMI_SECRET_MODEL_PROVIDER);
-    }
-    if (MIMI_SECRET_BASE_URL[0] != '\0') {
-        safe_copy(s_base_url, sizeof(s_base_url), MIMI_SECRET_BASE_URL);
     }
 
     /* NVS overrides take highest priority (set via CLI) */
@@ -329,27 +235,11 @@ esp_err_t llm_proxy_init(void)
         if (nvs_get_str(nvs, MIMI_NVS_KEY_PROVIDER, provider_tmp, &len) == ESP_OK && provider_tmp[0]) {
             safe_copy(s_provider, sizeof(s_provider), provider_tmp);
         }
-        char base_url_tmp[256] = {0};
-        len = sizeof(base_url_tmp);
-        if (nvs_get_str(nvs, MIMI_NVS_KEY_BASE_URL, base_url_tmp, &len) == ESP_OK && base_url_tmp[0]) {
-            safe_copy(s_base_url, sizeof(s_base_url), base_url_tmp);
-        }
         nvs_close(nvs);
     }
 
-    /* Try to sync with model registry */
-    if (g_llm_model_count > 0) {
-        const llm_model_config_t *current = llm_get_current_model();
-        if (current && s_model[0] == '\0') {
-            /* No model configured via NVS, use default from registry */
-            safe_copy(s_model, sizeof(s_model), current->name);
-            safe_copy(s_provider, sizeof(s_provider), current->provider);
-        }
-    }
-
     if (s_api_key[0]) {
-        ESP_LOGI(TAG, "LLM proxy initialized (provider: %s, model: %s, base_url: %s)",
-                 s_provider, s_model, s_base_url[0] ? s_base_url : "default");
+        ESP_LOGI(TAG, "LLM proxy initialized (provider: %s, model: %s)", s_provider, s_model);
     } else {
         ESP_LOGW(TAG, "No API key. Use CLI: set_api_key <KEY>");
     }
@@ -375,19 +265,16 @@ static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out
 
     esp_http_client_set_method(client, HTTP_METHOD_POST);
     esp_http_client_set_header(client, "Content-Type", "application/json");
-
-    if (provider_is_anthropic()) {
-        esp_http_client_set_header(client, "x-api-key", s_api_key);
-        esp_http_client_set_header(client, "anthropic-version", MIMI_LLM_API_VERSION);
-    } else {
-        /* OpenAI-compatible providers use Bearer token */
+    if (provider_is_openai()) {
         if (s_api_key[0]) {
             char auth[LLM_API_KEY_MAX_LEN + 16];
             snprintf(auth, sizeof(auth), "Bearer %s", s_api_key);
             esp_http_client_set_header(client, "Authorization", auth);
         }
+    } else {
+        esp_http_client_set_header(client, "x-api-key", s_api_key);
+        esp_http_client_set_header(client, "anthropic-version", MIMI_LLM_API_VERSION);
     }
-
     esp_http_client_set_post_field(client, post_data, strlen(post_data));
 
     esp_err_t err = esp_http_client_perform(client);
@@ -406,7 +293,16 @@ static esp_err_t llm_http_via_proxy(const char *post_data, resp_buf_t *rb, int *
     int body_len = strlen(post_data);
     char header[1024];
     int hlen = 0;
-    if (provider_is_anthropic()) {
+    if (provider_is_openai()) {
+        hlen = snprintf(header, sizeof(header),
+            "POST %s HTTP/1.1\r\n"
+            "Host: %s\r\n"
+            "Content-Type: application/json\r\n"
+            "Authorization: Bearer %s\r\n"
+            "Content-Length: %d\r\n"
+            "Connection: close\r\n\r\n",
+            llm_api_path(), llm_api_host(), s_api_key, body_len);
+    } else {
         hlen = snprintf(header, sizeof(header),
             "POST %s HTTP/1.1\r\n"
             "Host: %s\r\n"
@@ -416,16 +312,6 @@ static esp_err_t llm_http_via_proxy(const char *post_data, resp_buf_t *rb, int *
             "Content-Length: %d\r\n"
             "Connection: close\r\n\r\n",
             llm_api_path(), llm_api_host(), s_api_key, MIMI_LLM_API_VERSION, body_len);
-    } else {
-        /* OpenAI-compatible providers use Bearer token */
-        hlen = snprintf(header, sizeof(header),
-            "POST %s HTTP/1.1\r\n"
-            "Host: %s\r\n"
-            "Content-Type: application/json\r\n"
-            "Authorization: Bearer %s\r\n"
-            "Content-Length: %d\r\n"
-            "Connection: close\r\n\r\n",
-            llm_api_path(), llm_api_host(), s_api_key, body_len);
     }
 
     if (proxy_conn_write(conn, header, hlen) < 0 ||
@@ -673,15 +559,13 @@ esp_err_t llm_chat_tools(const char *system_prompt,
     /* Build request body (non-streaming) */
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "model", s_model);
-
     if (provider_is_openai()) {
         cJSON_AddNumberToObject(body, "max_completion_tokens", MIMI_LLM_MAX_TOKENS);
     } else {
         cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
     }
 
-    if (provider_is_openai_compatible()) {
-        /* OpenAI-compatible format */
+    if (provider_is_openai()) {
         cJSON *openai_msgs = convert_messages_openai(system_prompt, messages);
         cJSON_AddItemToObject(body, "messages", openai_msgs);
 
@@ -693,7 +577,6 @@ esp_err_t llm_chat_tools(const char *system_prompt,
             }
         }
     } else {
-        /* Anthropic format */
         cJSON_AddStringToObject(body, "system", system_prompt);
 
         /* Deep-copy messages so caller keeps ownership */
@@ -752,8 +635,7 @@ esp_err_t llm_chat_tools(const char *system_prompt,
         return ESP_FAIL;
     }
 
-    if (provider_is_openai_compatible()) {
-        /* OpenAI-compatible response format */
+    if (provider_is_openai()) {
         cJSON *choices = cJSON_GetObjectItem(root, "choices");
         cJSON *choice0 = choices && cJSON_IsArray(choices) ? cJSON_GetArrayItem(choices, 0) : NULL;
         if (choice0) {
@@ -925,18 +807,5 @@ esp_err_t llm_set_provider(const char *provider)
 
     safe_copy(s_provider, sizeof(s_provider), provider);
     ESP_LOGI(TAG, "Provider set to: %s", s_provider);
-    return ESP_OK;
-}
-
-esp_err_t llm_set_base_url(const char *base_url)
-{
-    nvs_handle_t nvs;
-    ESP_ERROR_CHECK(nvs_open(MIMI_NVS_LLM, NVS_READWRITE, &nvs));
-    ESP_ERROR_CHECK(nvs_set_str(nvs, MIMI_NVS_KEY_BASE_URL, base_url));
-    ESP_ERROR_CHECK(nvs_commit(nvs));
-    nvs_close(nvs);
-
-    safe_copy(s_base_url, sizeof(s_base_url), base_url);
-    ESP_LOGI(TAG, "Base URL set to: %s", s_base_url);
     return ESP_OK;
 }
