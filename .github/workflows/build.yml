@@ -16,6 +16,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check ESP-IDF components
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          echo "ESP-IDF path: $IDF_PATH"
+          echo "Checking for esp_websocket_client..."
+          ls -la "$IDF_PATH/components/esp_websocket_client" 2>/dev/null || echo "Not found in components"
+          find "$IDF_PATH" -name "*websocket*" -type d 2>/dev/null | head -10
+
       - name: Build firmware (ESP32-S3)
         shell: bash
         run: |
