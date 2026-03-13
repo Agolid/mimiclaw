@@ -1,0 +1,26 @@
+name: Test Official Repo
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v5.5.2
+
+    steps:
+      - name: Checkout official repo
+        uses: actions/checkout@v4
+        with:
+          repository: memovai/mimiclaw
+
+      - name: Build firmware
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          idf.py set-target esp32s3
+          idf.py fullclean
+          idf.py build
