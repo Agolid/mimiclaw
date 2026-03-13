@@ -1,0 +1,19 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v5.5.2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Echo test
+        run: echo "Hello from GitHub Actions!"
