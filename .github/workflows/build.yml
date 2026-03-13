@@ -12,6 +12,10 @@ jobs:
     container:
       image: espressif/idf:v5.5.2
 
+    env:
+      IDF_COMPONENT_REGISTRY_TOKEN: ${{ secrets.IDF_COMPONENT_REGISTRY_TOKEN }}
+      IDF_COMPONENT_MANAGER_URL: https://components.espressif.com/
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
