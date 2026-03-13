@@ -16,6 +16,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Download esp_websocket_client
+        run: |
+          git clone --depth 1 --branch master https://github.com/espressif/esp-protocols.git /tmp/esp-protocols
+          mkdir -p $IDF_PATH/components/esp_websocket_client
+          cp -r /tmp/esp-protocols/components/esp_websocket_client/* $IDF_PATH/components/esp_websocket_client/
+
       - name: Build firmware (ESP32-S3)
         shell: bash
         run: |

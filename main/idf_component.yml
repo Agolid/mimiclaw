@@ -1,2 +1,0 @@
-dependencies:
-  espressif__esp_websocket_client: "*"
