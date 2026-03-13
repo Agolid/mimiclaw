@@ -1,1 +1,3 @@
-# Empty manifest
+dependencies:
+  espressif__esp_protocol__esp_websocket_client:
+    version: "*"
