@@ -12,38 +12,14 @@ jobs:
     container:
       image: espressif/idf:v5.5.2
 
-    env:
-      IDF_COMPONENT_REGISTRY_TOKEN: ${{ secrets.IDF_COMPONENT_REGISTRY_TOKEN }}
-      IDF_COMPONENT_MANAGER_URL: https://components.espressif.com/
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install dependencies
-        shell: bash
-        run: |
-          . "$IDF_PATH/export.sh"
-          echo "Checking Component Manager..."
-          idf-component-manager --version || echo "Component Manager not found"
-          echo "Checking git..."
-          git --version
-          echo "Checking python..."
-          python --version
-          echo "Checking idf_component.yml..."
-          cat main/idf_component.yml
 
       - name: Build firmware (ESP32-S3)
         shell: bash
         run: |
           . "$IDF_PATH/export.sh"
           idf.py set-target esp32s3
-          # idf.py fullclean
-          idf.py build 2>&1 | tee build.log
-
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: build.log
+          idf.py fullclean
+          idf.py build
