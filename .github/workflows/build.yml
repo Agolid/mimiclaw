@@ -16,23 +16,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Debug: Check environment
-        shell: bash
-        run: |
-          echo "IDF_PATH: $IDF_PATH"
-          echo "Python version:"
-          python --version
-          echo "Component manager version:"
-          idf-component-manager --version 2>/dev/null || echo "Not found"
-          echo "Check idf_component.yml:"
-          cat main/idf_component.yml || echo "File not found"
-          echo "Git version:"
-          git --version
-
       - name: Build firmware (ESP32-S3)
         shell: bash
         run: |
           . "$IDF_PATH/export.sh"
           idf.py set-target esp32s3
           idf.py fullclean
-          idf.py build
+          idf.py build 2>&1 | tee build.log
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
