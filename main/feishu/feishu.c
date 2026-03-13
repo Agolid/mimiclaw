@@ -1,7 +1,7 @@
 #include "feishu.h"
 #include "feishu_config.h"
 #include "feishu_client.h"
-#include "feishu_ws.h"
+#include "feishu_polling.h"
 #include "feishu_send.h"
 #include "feishu_message.h"
 #include "mimi_config.h"
@@ -145,9 +145,9 @@ esp_err_t feishu_init(void)
         return err;
     }
 
-    err = feishu_ws_init();
+    err = feishu_polling_init();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to init WebSocket");
+        ESP_LOGE(TAG, "Failed to init HTTP polling");
         return err;
     }
 
@@ -172,9 +172,9 @@ esp_err_t feishu_start(void)
         return ESP_FAIL;
     }
 
-    esp_err_t err = feishu_ws_start();
+    esp_err_t err = feishu_polling_start();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to start WebSocket");
+        ESP_LOGE(TAG, "Failed to start HTTP polling");
         return err;
     }
 
@@ -198,7 +198,7 @@ esp_err_t feishu_stop(void)
 {
     s_feishu_running = false;
 
-    feishu_ws_stop();
+    feishu_polling_stop();
 
     if (s_outbound_task_handle) {
         vTaskDelete(s_outbound_task_handle);

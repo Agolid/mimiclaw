@@ -7,7 +7,7 @@ idf_component_register(
         "feishu/feishu_config.c"
         "feishu/feishu_client.c"
         "feishu/feishu_message.c"
-        "feishu/feishu_ws.c"
+        "feishu/feishu_polling.c"
         "feishu/feishu_send.c"
         "telegram/telegram_bot.c"
         "llm/llm_proxy.c"
