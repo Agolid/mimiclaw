@@ -2,6 +2,7 @@
 #include "feishu_config.h"
 #include "feishu_client.h"
 #include "feishu_message.h"
+#include "feishu_types.h"
 #include "mimi_config.h"
 #include "esp_log.h"
 #include "esp_http_client.h"
@@ -26,9 +27,27 @@ static bool s_connected = false;
 static TaskHandle_t s_poll_task_handle = NULL;
 static esp_http_client_handle_t s_http_client = NULL;
 
+// 飞书API endpoint
+static const char *FEISHU_API_BASE = "https://open.feishu.cn/open-apis/im/v1/messages";
+
 // 响应缓冲区
 static char s_http_response[HTTP_RESPONSE_BUF_SIZE] = {0};
 static int s_http_response_len = 0;
+
+/**
+ * @brief HTTP数据处理器 - 累积数据
+ */
+static esp_err_t feishu_polling_http_data_handler(esp_http_client_event_t *evt)
+{
+    int copy_len = evt->data_len;
+    if (s_http_response_len + copy_len < HTTP_RESPONSE_BUF_SIZE - 1) {
+        memcpy(s_http_response + s_http_response_len, evt->data, copy_len);
+        s_http_response_len += copy_len;
+    } else {
+        ESP_LOGW(TAG, "HTTP response buffer overflow, dropping data");
+    }
+    return ESP_OK;
+}
 
 /**
  * @brief 构建带认证的飞书API URL
@@ -58,16 +77,10 @@ static esp_err_t feishu_polling_http_event_handler(esp_http_client_event_t *evt)
 {
     switch (evt->event_id) {
     case HTTP_EVENT_ON_DATA:
-        // 复制响应数据到缓冲区
-        int copy_len = evt->data_len;
-        if (s_http_response_len + copy_len < HTTP_RESPONSE_BUF_SIZE - 1) {
-            memcpy(s_http_response + s_http_response_len, evt->data, copy_len);
-            s_http_response_len += copy_len;
-        }
-        break;
+        return feishu_polling_http_data_handler(evt);
 
     case HTTP_EVENT_ON_FINISH:
-        ESP_LOGI(TAG, "HTTP request finished, total length: %d", s_http_response_len);
+        ESP_LOGD(TAG, "HTTP finished, total length: %d", s_http_response_len);
         break;
 
     case HTTP_EVENT_DISCONNECTED:
@@ -95,7 +108,7 @@ static void feishu_polling_process_response(void)
     }
 
     s_http_response[s_http_response_len] = '\0';
-    ESP_LOGI(TAG, "Polling response: %s", s_http_response);
+    ESP_LOGI(TAG, "Polling response: %.*s", s_http_response_len > 200 ? 200 : s_http_response_len, s_http_response);
 
     // 解析JSON响应
     cJSON *root = cJSON_Parse(s_http_response);
@@ -119,7 +132,7 @@ static void feishu_polling_process_response(void)
                     feishu_message_t fs_msg;
                     if (feishu_message_parse(body_str, &fs_msg) == ESP_OK) {
                         if (fs_msg.content[0] != '\0') {
-                            // 调用消息处理回调（和WebSocket版本一样）
+                            // 调用消息处理回调
                             extern void feishu_on_message_ex(const feishu_message_t *msg);
                             feishu_on_message_ex(&fs_msg);
                         }
@@ -162,7 +175,7 @@ static esp_err_t feishu_polling_request(void)
         .url = url,
         .method = HTTP_METHOD_GET,
         .event_handler = feishu_polling_http_event_handler,
-        .timeout_ms = 10000,
+        .timeout_ms = 15000,  // 增加超时时间
         .disable_auto_redirect = true,
     };
 
@@ -221,7 +234,7 @@ static void feishu_polling_task(void *arg)
     vTaskDelete(NULL);
 }
 
-// ============ 公开API实现 ============
+// ========== 公开API实现 ==========
 
 esp_err_t feishu_polling_init(void)
 {
